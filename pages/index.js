@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Vercel kasasındaki şifreleri alıp Supabase'e bağlanıyoruz
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -10,114 +9,127 @@ export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
   const [harcamalar, setHarcamalar] = useState([]);
   const [yukleniyor, setYukleniyor] = useState(false);
+  
+  // Excel'deki sütunlara göre form yapısı
+  const [form, setForm] = useState({
+    oge: '', makbuz_no: '', fatura_no: '', tarih: '', kategori: '', aciklama: '', tutar: ''
+  });
 
-  // Sayfa açıldığında verileri getir
   useEffect(() => {
     setIsClient(true);
     verileriGetir();
   }, []);
 
-  // Supabase'den tabloyu okuyan fonksiyon
   async function verileriGetir() {
-    const { data } = await supabase.from('harcamalar').select('*').order('created_at', { ascending: false });
+    const { data } = await supabase.from('harcamalar').select('*').order('tarih', { ascending: false });
     if (data) setHarcamalar(data);
   }
 
-  // Butona basıldığında test verisi gönderen fonksiyon
-  async function fisOkut() {
+  // Yeni form gönderme işlemi
+  async function kaydet(e) {
+    e.preventDefault();
     setYukleniyor(true);
-    // Veritabanına test harcaması ekliyoruz
+    
     const { error } = await supabase.from('harcamalar').insert([{
-      tarih: new Date().toISOString().split('T')[0],
-      kategori: 'Malzeme',
-      tutar: Math.floor(Math.random() * 5000) + 500, // Rastgele bir tutar
-      aciklama: 'Nalbur - Test Fişi (Sistem Bağlantı Kontrolü)'
+      oge: form.oge,
+      makbuz_no: form.makbuz_no,
+      fatura_no: form.fatura_no,
+      tarih: form.tarih,
+      kategori: form.kategori,
+      aciklama: form.aciklama,
+      tutar: Number(form.tutar)
     }]);
     
-    await verileriGetir(); // Ekledikten sonra listeyi yenile
+    if(!error) {
+      // Başarılıysa formu temizle ve listeyi yenile
+      setForm({ oge: '', makbuz_no: '', fatura_no: '', tarih: '', kategori: '', aciklama: '', tutar: '' });
+      await verileriGetir();
+    } else {
+      alert("Kayıt eklenirken hata oluştu! Supabase sütunlarını kontrol edin.");
+    }
     setYukleniyor(false);
   }
 
   if (!isClient) return null;
 
-  // Toplam harcamayı otomatik hesapla
   const toplamHarcama = harcamalar.reduce((toplam, item) => toplam + Number(item.tutar), 0);
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f0f2f5', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f3f4f6', fontFamily: 'system-ui, sans-serif' }}>
       {/* Sol Menü */}
-      <div style={{ width: '250px', backgroundColor: '#1e293b', color: 'white', padding: '20px', display: 'flex', flexDirection: 'column' }}>
-        <h2 style={{ fontSize: '22px', borderBottom: '1px solid #334155', paddingBottom: '15px', marginTop: 0 }}>Esmahan Yapı</h2>
-        <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '-5px', marginBottom: '30px' }}>Şantiye Yönetim Sistemi</p>
+      <div style={{ width: '250px', backgroundColor: '#111827', color: 'white', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+        <h2 style={{ fontSize: '20px', borderBottom: '1px solid #374151', paddingBottom: '15px', marginTop: 0 }}>Esmahan Yapı</h2>
+        <p style={{ color: '#9ca3af', fontSize: '13px', marginTop: '-5px', marginBottom: '30px' }}>4129 Ada 1 Parsel - Silivri</p>
         
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          <li style={{ padding: '10px 15px', backgroundColor: '#3b82f6', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>📊 Ana Ekran</li>
-          <li style={{ padding: '10px 15px', cursor: 'pointer', color: '#cbd5e1' }}>🧾 Giderler & Fişler</li>
-          <li style={{ padding: '10px 15px', cursor: 'pointer', color: '#cbd5e1' }}>👷‍♂️ Puantaj (Yoklama)</li>
-          <li style={{ padding: '10px 15px', cursor: 'pointer', color: '#cbd5e1' }}>🏢 Projeler</li>
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <li style={{ padding: '12px 15px', backgroundColor: '#2563eb', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>📊 Bütçe & Giderler</li>
+          <li style={{ padding: '12px 15px', cursor: 'pointer', color: '#d1d5db' }}>📈 Gelirler</li>
+          <li style={{ padding: '12px 15px', cursor: 'pointer', color: '#d1d5db' }}>👷‍♂️ Puantaj</li>
         </ul>
       </div>
 
       {/* Ana İçerik */}
-      <div style={{ flex: 1, padding: '40px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-          <h1 style={{ color: '#0f172a', margin: 0, fontSize: '28px' }}>Genel Durum Özeti</h1>
-          <button 
-            onClick={fisOkut}
-            disabled={yukleniyor}
-            style={{ backgroundColor: yukleniyor ? '#93c5fd' : '#2563eb', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: yukleniyor ? 'wait' : 'pointer', fontWeight: 'bold', fontSize: '15px', boxShadow: '0 4px 6px rgba(37,99,235,0.2)' }}>
-            {yukleniyor ? 'İşleniyor...' : '+ Yeni Fiş / Fatura Okut (Test)'}
-          </button>
-        </div>
-
-        {/* Özet Kartları */}
-        <div style={{ display: 'flex', gap: '20px', marginBottom: '40px' }}>
-          <div style={{ flex: 1, backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
-            <h3 style={{ margin: '0 0 10px 0', color: '#64748b', fontSize: '14px', textTransform: 'uppercase' }}>Aktif Projeler</h3>
-            <p style={{ margin: 0, fontSize: '32px', fontWeight: 'bold', color: '#0f172a' }}>2</p>
+      <div style={{ flex: 1, padding: '30px', overflowY: 'auto' }}>
+        
+        {/* Üst Özet Kartları */}
+        <div style={{ display: 'flex', gap: '20px', marginBottom: '30px' }}>
+          <div style={{ flex: 1, backgroundColor: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <h3 style={{ margin: '0 0 5px 0', color: '#6b7280', fontSize: '13px' }}>TOPLAM HARCAMA</h3>
+            <p style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#dc2626' }}>₺{toplamHarcama.toLocaleString('tr-TR')}</p>
           </div>
-          <div style={{ flex: 1, backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
-            <h3 style={{ margin: '0 0 10px 0', color: '#64748b', fontSize: '14px', textTransform: 'uppercase' }}>İşlenen Fiş Sayısı</h3>
-            <p style={{ margin: 0, fontSize: '32px', fontWeight: 'bold', color: '#eab308' }}>{harcamalar.length}</p>
-          </div>
-          <div style={{ flex: 1, backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
-            <h3 style={{ margin: '0 0 10px 0', color: '#64748b', fontSize: '14px', textTransform: 'uppercase' }}>Toplam Harcama</h3>
-            <p style={{ margin: 0, fontSize: '32px', fontWeight: 'bold', color: '#ef4444' }}>₺{toplamHarcama.toLocaleString('tr-TR')}</p>
+          <div style={{ flex: 1, backgroundColor: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <h3 style={{ margin: '0 0 5px 0', color: '#6b7280', fontSize: '13px' }}>KAYITLI İŞLEM SAYISI</h3>
+            <p style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#1f2937' }}>{harcamalar.length}</p>
           </div>
         </div>
 
-        {/* Veritabanı Tablo Alanı */}
-        <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
-          <h2 style={{ margin: '0 0 20px 0', color: '#0f172a', fontSize: '18px' }}>Son Yüklenen Harcama Belgeleri</h2>
-          
-          {harcamalar.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', border: '2px dashed #e2e8f0', borderRadius: '8px', color: '#94a3b8' }}>
-              <p style={{ fontSize: '16px' }}>Sistemde henüz veri bulunmuyor.</p>
-              <p style={{ fontSize: '14px' }}>Yukarıdaki butona basarak ilk test fişinizi sisteme ekleyin.</p>
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
-                  <th style={{ padding: '12px 8px' }}>Tarih</th>
-                  <th style={{ padding: '12px 8px' }}>Kategori</th>
-                  <th style={{ padding: '12px 8px' }}>Açıklama</th>
-                  <th style={{ padding: '12px 8px' }}>Tutar</th>
+        {/* Veri Giriş Formu */}
+        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
+          <h2 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#111827' }}>Yeni Gider Ekle</h2>
+          <form onSubmit={kaydet} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <input required type="date" value={form.tarih} onChange={e => setForm({...form, tarih: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '120px' }} />
+            <input required placeholder="Öğe (Firma/Kişi)" value={form.oge} onChange={e => setForm({...form, oge: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '150px' }} />
+            <input placeholder="Makbuz No" value={form.makbuz_no} onChange={e => setForm({...form, makbuz_no: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '100px' }} />
+            <input placeholder="Fatura No" value={form.fatura_no} onChange={e => setForm({...form, fatura_no: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '100px' }} />
+            <input required placeholder="Kategori" value={form.kategori} onChange={e => setForm({...form, kategori: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '120px' }} />
+            <input placeholder="Açıklama" value={form.aciklama} onChange={e => setForm({...form, aciklama: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 2, minWidth: '200px' }} />
+            <input required type="number" placeholder="Tutar (₺)" value={form.tutar} onChange={e => setForm({...form, tutar: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '100px' }} />
+            <button type="submit" disabled={yukleniyor} style={{ padding: '8px 20px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+              {yukleniyor ? '...' : 'Ekle'}
+            </button>
+          </form>
+        </div>
+
+        {/* Excel Tipi Tablo */}
+        <div style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+            <thead style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+              <tr>
+                <th style={{ padding: '12px 15px', color: '#4b5563' }}>Tarih</th>
+                <th style={{ padding: '12px 15px', color: '#4b5563' }}>Öğe</th>
+                <th style={{ padding: '12px 15px', color: '#4b5563' }}>Makbuz No</th>
+                <th style={{ padding: '12px 15px', color: '#4b5563' }}>Fatura No</th>
+                <th style={{ padding: '12px 15px', color: '#4b5563' }}>Kategori</th>
+                <th style={{ padding: '12px 15px', color: '#4b5563' }}>Açıklama</th>
+                <th style={{ padding: '12px 15px', color: '#4b5563', textAlign: 'right' }}>Tutar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {harcamalar.map((islem) => (
+                <tr key={islem.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={{ padding: '12px 15px', whiteSpace: 'nowrap' }}>{islem.tarih}</td>
+                  <td style={{ padding: '12px 15px', fontWeight: '500', color: '#111827' }}>{islem.oge || '-'}</td>
+                  <td style={{ padding: '12px 15px', color: '#6b7280' }}>{islem.makbuz_no || '-'}</td>
+                  <td style={{ padding: '12px 15px', color: '#6b7280' }}>{islem.fatura_no || '-'}</td>
+                  <td style={{ padding: '12px 15px' }}><span style={{ backgroundColor: '#e5e7eb', padding: '3px 8px', borderRadius: '4px', fontSize: '12px' }}>{islem.kategori}</span></td>
+                  <td style={{ padding: '12px 15px', color: '#4b5563' }}>{islem.aciklama || '-'}</td>
+                  <td style={{ padding: '12px 15px', fontWeight: 'bold', color: '#dc2626', textAlign: 'right' }}>₺{Number(islem.tutar).toLocaleString('tr-TR')}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {harcamalar.map((islem) => (
-                  <tr key={islem.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '12px 8px' }}>{islem.tarih}</td>
-                    <td style={{ padding: '12px 8px' }}><span style={{ backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '4px', fontSize: '13px' }}>{islem.kategori}</span></td>
-                    <td style={{ padding: '12px 8px' }}>{islem.aciklama}</td>
-                    <td style={{ padding: '12px 8px', fontWeight: 'bold', color: '#0f172a' }}>₺{Number(islem.tutar).toLocaleString('tr-TR')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+              ))}
+            </tbody>
+          </table>
         </div>
+
       </div>
     </div>
   );
