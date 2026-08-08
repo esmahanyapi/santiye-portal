@@ -5,21 +5,24 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.
 
 export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(false); // Mobil kontrolü
   const [projeler, setProjeler] = useState([]);
   const [seciliProje, setSeciliProje] = useState(null);
   const [yeniProjeAdi, setYeniProjeAdi] = useState('');
+  
   const [harcamalar, setHarcamalar] = useState([]);
   const [gelirler, setGelirler] = useState([]);
   const [aktifSekme, setAktifSekme] = useState('ozet');
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
+
   const formBaslangic = { oge: '', makbuz_no: '', fatura_no: '', tarih: new Date().toISOString().split('T')[0], kategori: '', aciklama: '', tutar: '' };
   const [form, setForm] = useState(formBaslangic);
 
   useEffect(() => { 
     setIsClient(true); 
     projeleriGetir();
+    // Ekran boyutunu izle
     const handleResize = () => setIsMobile(window.innerWidth < 1024);
     handleResize();
     window.addEventListener('resize', handleResize);
@@ -49,7 +52,7 @@ export default function Dashboard() {
   }
 
   async function sil(id) {
-    if (window.confirm("Silmek istediğinize emin misiniz?")) {
+    if (window.confirm("Bu kaydı silmek istediğinize emin misiniz?")) {
       const tablo = aktifSekme === 'gelirler' ? 'gelirler' : 'harcamalar';
       await supabase.from(tablo).delete().eq('id', id);
       await verileriGetir();
@@ -66,31 +69,53 @@ export default function Dashboard() {
   if (!isClient) return null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', backgroundColor: '#f8fafc', fontFamily: 'system-ui, sans-serif' }}>
-      {/* SOL MENÜ */}
-      <div style={{ width: isMobile ? '100%' : '300px', backgroundColor: '#0f172a', color: 'white', padding: '24px' }}>
-        <h2 style={{ fontSize: '18px', borderBottom: '1px solid #1e293b', paddingBottom: '15px' }}>Esmahan Yapı</h2>
-        <ul style={{ listStyle: 'none', padding: 0, margin: '15px 0' }}>
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', backgroundColor: '#f8fafc', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      
+      {/* SOL MENÜ (MOBİLDE ÜSTE GEÇER) */}
+      <div style={{ width: isMobile ? '100%' : '300px', backgroundColor: '#0f172a', color: 'white', padding: '24px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '25px', borderBottom: '1px solid #1e293b', paddingBottom: '15px' }}>
+          <span style={{ fontSize: '24px' }}>🏗️</span>
+          <div>
+            <h2 style={{ fontSize: '18px', margin: 0, fontWeight: '700' }}>Esmahan Yapı</h2>
+            <p style={{ fontSize: '12px', margin: 0, color: '#94a3b8' }}>Şantiye Yönetim Portalı</p>
+          </div>
+        </div>
+
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {projeler.map(p => (
-            <li key={p.id} onClick={() => setSeciliProje(p)} style={{ padding: '12px', background: seciliProje?.id === p.id ? '#2563eb' : 'transparent', borderRadius: '8px', cursor: 'pointer', marginBottom: '5px' }}>🏢 {p.ad}</li>
+            <li key={p.id} onClick={() => setSeciliProje(p)} style={{ 
+              padding: '12px 16px', 
+              background: seciliProje?.id === p.id ? 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' : 'transparent', 
+              color: '#fff', cursor: 'pointer', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '10px'
+            }}>🏢 {p.ad}</li>
           ))}
         </ul>
-        <form onSubmit={e => { e.preventDefault(); supabase.from('projeler').insert([{ad: yeniProjeAdi}]).then(projeleriGetir); setYeniProjeAdi(''); }}>
-          <input value={yeniProjeAdi} onChange={e => setYeniProjeAdi(e.target.value)} placeholder="Yeni Proje Adı..." style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#1e293b', color: 'white' }} />
-        </form>
       </div>
 
-      {/* ANA İÇERİK */}
-      <div style={{ flex: 1, padding: isMobile ? '20px' : '40px' }}>
-        {!seciliProje ? <h2>Lütfen bir proje seçin.</h2> : (
+      {/* ANA İÇERİK ALANI */}
+      <div style={{ flex: 1, padding: isMobile ? '20px' : '40px', overflowX: 'hidden' }}>
+        {!seciliProje ? <h2>Lütfen proje seçin.</h2> : (
           <>
             <h1 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '20px' }}>{seciliProje.ad}</h1>
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '25px', flexWrap: 'wrap' }}>
-              {['ozet', 'gelirler', 'giderler'].map(s => (
-                <button key={s} onClick={() => setAktifSekme(s)} style={{ padding: '12px 24px', backgroundColor: aktifSekme === s ? '#2563eb' : '#fff', color: aktifSekme === s ? '#fff' : '#475569', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}>{s.toUpperCase()}</button>
+            
+            {/* SEKMELER */}
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '30px', overflowX: 'auto', paddingBottom: '5px' }}>
+              {[
+                { id: 'ozet', label: '📊 Genel Özet', color: '#6366f1' },
+                { id: 'gelirler', label: '📈 Gelirler', color: '#059669' },
+                { id: 'giderler', label: '📉 Giderler', color: '#dc2626' }
+              ].map(s => (
+                <button key={s.id} onClick={() => setAktifSekme(s.id)} style={{ 
+                  padding: '12px 20px', backgroundColor: aktifSekme === s.id ? s.color : '#fff', 
+                  color: aktifSekme === s.id ? '#fff' : '#475569', border: '1px solid #e2e8f0', borderRadius: '10px', 
+                  cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap'
+                }}>
+                  {s.label}
+                </button>
               ))}
             </div>
 
+            {/* ÖZET EKRANI */}
             {aktifSekme === 'ozet' ? (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '20px' }}>
                 <div style={{ background: '#f0fdf4', padding: '20px', borderRadius: '16px', border: '1px solid #dcfce7' }}><h3>Gelir</h3><p style={{ fontSize: '24px', color: '#059669', fontWeight: 'bold' }}>₺{gelirler.reduce((t,i)=>t+Number(i.tutar),0).toLocaleString()}</p></div>
@@ -98,7 +123,7 @@ export default function Dashboard() {
                 <div style={{ background: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #dbeafe' }}><h3>Bakiye</h3><p style={{ fontSize: '24px', color: '#2563eb', fontWeight: 'bold' }}>₺{(gelirler.reduce((t,i)=>t+Number(i.tutar),0) - harcamalar.reduce((t,i)=>t+Number(i.tutar),0)).toLocaleString()}</p></div>
               </div>
             ) : (
-              <div style={{ background: 'white', padding: '25px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+              <div style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
                 <form onSubmit={kaydet} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: '10px', marginBottom: '20px' }}>
                   <input type="date" value={form.tarih} onChange={e => setForm({...form, tarih: e.target.value})} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
                   <input placeholder="Öğe" value={form.oge} onChange={e => setForm({...form, oge: e.target.value})} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
@@ -106,30 +131,21 @@ export default function Dashboard() {
                   <button type="submit" style={{ padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>Ekle</button>
                 </form>
 
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', background: '#f8fafc', padding: '15px', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', background: '#f8fafc', padding: '15px', borderRadius: '8px', flexWrap: 'wrap' }}>
                   <input placeholder="Kategori Ara..." value={filtreKategori} onChange={e => setFiltreKategori(e.target.value)} style={{ padding: '8px', flex: 1 }} />
-                  <input placeholder="Taşeron Ara..." value={filtreAciklama} onChange={e => setFiltreAciklama(e.target.value)} style={{ padding: '8px', flex: 1 }} />
                   <strong>Toplam: ₺{gorunenToplam.toLocaleString()}</strong>
                 </div>
 
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right', fontSize: '14px' }}>
                     <thead><tr style={{ background: '#f8fafc', borderBottom: '2px solid #ddd' }}>
-                      <th style={{ padding: '12px', textAlign: 'right' }}>Tarih</th>
-                      <th style={{ padding: '12px', textAlign: 'right' }}>Öğe</th>
-                      <th style={{ padding: '12px', textAlign: 'right' }}>Kategori</th>
-                      <th style={{ padding: '12px', textAlign: 'right' }}>Açıklama</th>
-                      <th style={{ padding: '12px', textAlign: 'right' }}>Tutar</th>
-                      <th style={{ padding: '12px', textAlign: 'center' }}>Sil</th>
+                      <th style={{ padding: '12px' }}>Tarih</th><th style={{ padding: '12px' }}>Öğe</th><th style={{ padding: '12px' }}>Kategori</th><th style={{ padding: '12px' }}>Açıklama</th><th style={{ padding: '12px' }}>Tutar</th><th style={{ padding: '12px' }}>İşlem</th>
                     </tr></thead>
                     <tbody>{gorunenListe.map(i => (
                       <tr key={i.id} style={{ borderBottom: '1px solid #eee' }}>
-                        <td style={{ padding: '12px' }}>{i.tarih}</td>
-                        <td style={{ padding: '12px' }}>{i.oge}</td>
-                        <td style={{ padding: '12px' }}>{i.kategori}</td>
-                        <td style={{ padding: '12px' }}>{i.aciklama}</td>
+                        <td style={{ padding: '12px' }}>{i.tarih}</td><td style={{ padding: '12px' }}>{i.oge}</td><td style={{ padding: '12px' }}>{i.kategori}</td><td style={{ padding: '12px' }}>{i.aciklama}</td>
                         <td style={{ padding: '12px', fontWeight: 'bold' }}>₺{Number(i.tutar).toLocaleString()}</td>
-                        <td style={{ padding: '12px', textAlign: 'center' }}><button onClick={() => sil(i.id)} style={{ color: 'red', cursor: 'pointer' }}>✕</button></td>
+                        <td style={{ padding: '12px' }}><button onClick={() => sil(i.id)} style={{ color: 'red', cursor: 'pointer' }}>✕</button></td>
                       </tr>
                     ))}</tbody>
                   </table>
