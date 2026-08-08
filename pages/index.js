@@ -9,11 +9,10 @@ export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
   const [harcamalar, setHarcamalar] = useState([]);
   const [yukleniyor, setYukleniyor] = useState(false);
+  const [duzenlenenId, setDuzenlenenId] = useState(null); // Hangi satırı düzenlediğimizi takip eder
   
-  // Excel'deki sütunlara göre form yapısı
-  const [form, setForm] = useState({
-    oge: '', makbuz_no: '', fatura_no: '', tarih: '', kategori: '', aciklama: '', tutar: ''
-  });
+  const formBaslangic = { oge: '', makbuz_no: '', fatura_no: '', tarih: '', kategori: '', aciklama: '', tutar: '' };
+  const [form, setForm] = useState(formBaslangic);
 
   useEffect(() => {
     setIsClient(true);
@@ -25,29 +24,79 @@ export default function Dashboard() {
     if (data) setHarcamalar(data);
   }
 
-  // Yeni form gönderme işlemi
+  // Kaydetme veya Güncelleme İşlemi
   async function kaydet(e) {
     e.preventDefault();
     setYukleniyor(true);
     
-    const { error } = await supabase.from('harcamalar').insert([{
-      oge: form.oge,
-      makbuz_no: form.makbuz_no,
-      fatura_no: form.fatura_no,
-      tarih: form.tarih,
-      kategori: form.kategori,
-      aciklama: form.aciklama,
-      tutar: Number(form.tutar)
-    }]);
-    
-    if(!error) {
-      // Başarılıysa formu temizle ve listeyi yenile
-      setForm({ oge: '', makbuz_no: '', fatura_no: '', tarih: '', kategori: '', aciklama: '', tutar: '' });
-      await verileriGetir();
+    if (duzenlenenId) {
+      // Düzenleme (Güncelleme) Modu
+      const { error } = await supabase.from('harcamalar').update({
+        oge: form.oge,
+        makbuz_no: form.makbuz_no,
+        fatura_no: form.fatura_no,
+        tarih: form.tarih,
+        kategori: form.kategori,
+        aciklama: form.aciklama,
+        tutar: Number(form.tutar)
+      }).eq('id', duzenlenenId);
+      
+      if(!error) {
+        setForm(formBaslangic);
+        setDuzenlenenId(null);
+        await verileriGetir();
+      } else {
+        alert("Güncelleme sırasında hata oluştu!");
+      }
     } else {
-      alert("Kayıt eklenirken hata oluştu! Supabase sütunlarını kontrol edin.");
+      // Yeni Kayıt Modu
+      const { error } = await supabase.from('harcamalar').insert([{
+        oge: form.oge,
+        makbuz_no: form.makbuz_no,
+        fatura_no: form.fatura_no,
+        tarih: form.tarih,
+        kategori: form.kategori,
+        aciklama: form.aciklama,
+        tutar: Number(form.tutar)
+      }]);
+      
+      if(!error) {
+        setForm(formBaslangic);
+        await verileriGetir();
+      } else {
+        alert("Kayıt eklenirken hata oluştu!");
+      }
     }
     setYukleniyor(false);
+  }
+
+  // Satır Silme İşlemi
+  async function sil(id) {
+    if (window.confirm("Bu kaydı kalıcı olarak silmek istediğinize emin misiniz?")) {
+      await supabase.from('harcamalar').delete().eq('id', id);
+      await verileriGetir();
+    }
+  }
+
+  // Düzenleme Moduna Geçiş
+  function duzenlemeyeBasla(islem) {
+    setForm({
+      oge: islem.oge || '',
+      makbuz_no: islem.makbuz_no || '',
+      fatura_no: islem.fatura_no || '',
+      tarih: islem.tarih || '',
+      kategori: islem.kategori || '',
+      aciklama: islem.aciklama || '',
+      tutar: islem.tutar || ''
+    });
+    setDuzenlenenId(islem.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // Sayfayı forma doğru kaydırır
+  }
+
+  // Düzenlemeden Vazgeçme
+  function iptalEt() {
+    setForm(formBaslangic);
+    setDuzenlenenId(null);
   }
 
   if (!isClient) return null;
@@ -84,8 +133,10 @@ export default function Dashboard() {
         </div>
 
         {/* Veri Giriş Formu */}
-        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
-          <h2 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#111827' }}>Yeni Gider Ekle</h2>
+        <div style={{ backgroundColor: duzenlenenId ? '#fef2f2' : 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px', border: duzenlenenId ? '1px solid #fca5a5' : 'none' }}>
+          <h2 style={{ margin: '0 0 15px 0', fontSize: '16px', color: duzenlenenId ? '#dc2626' : '#111827' }}>
+            {duzenlenenId ? 'Kayıt Düzenleniyor...' : 'Yeni Gider Ekle'}
+          </h2>
           <form onSubmit={kaydet} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <input required type="date" value={form.tarih} onChange={e => setForm({...form, tarih: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '120px' }} />
             <input required placeholder="Öğe (Firma/Kişi)" value={form.oge} onChange={e => setForm({...form, oge: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '150px' }} />
@@ -94,9 +145,16 @@ export default function Dashboard() {
             <input required placeholder="Kategori" value={form.kategori} onChange={e => setForm({...form, kategori: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '120px' }} />
             <input placeholder="Açıklama" value={form.aciklama} onChange={e => setForm({...form, aciklama: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 2, minWidth: '200px' }} />
             <input required type="number" placeholder="Tutar (₺)" value={form.tutar} onChange={e => setForm({...form, tutar: e.target.value})} style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', flex: 1, minWidth: '100px' }} />
-            <button type="submit" disabled={yukleniyor} style={{ padding: '8px 20px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-              {yukleniyor ? '...' : 'Ekle'}
+            
+            <button type="submit" disabled={yukleniyor} style={{ padding: '8px 20px', backgroundColor: duzenlenenId ? '#ea580c' : '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+              {yukleniyor ? '...' : (duzenlenenId ? 'Güncelle' : 'Ekle')}
             </button>
+            
+            {duzenlenenId && (
+              <button type="button" onClick={iptalEt} style={{ padding: '8px 15px', backgroundColor: '#6b7280', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                İptal
+              </button>
+            )}
           </form>
         </div>
 
@@ -112,11 +170,12 @@ export default function Dashboard() {
                 <th style={{ padding: '12px 15px', color: '#4b5563' }}>Kategori</th>
                 <th style={{ padding: '12px 15px', color: '#4b5563' }}>Açıklama</th>
                 <th style={{ padding: '12px 15px', color: '#4b5563', textAlign: 'right' }}>Tutar</th>
+                <th style={{ padding: '12px 15px', color: '#4b5563', textAlign: 'center' }}>İşlemler</th>
               </tr>
             </thead>
             <tbody>
               {harcamalar.map((islem) => (
-                <tr key={islem.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <tr key={islem.id} style={{ borderBottom: '1px solid #f3f4f6', backgroundColor: duzenlenenId === islem.id ? '#fef2f2' : 'transparent' }}>
                   <td style={{ padding: '12px 15px', whiteSpace: 'nowrap' }}>{islem.tarih}</td>
                   <td style={{ padding: '12px 15px', fontWeight: '500', color: '#111827' }}>{islem.oge || '-'}</td>
                   <td style={{ padding: '12px 15px', color: '#6b7280' }}>{islem.makbuz_no || '-'}</td>
@@ -124,6 +183,10 @@ export default function Dashboard() {
                   <td style={{ padding: '12px 15px' }}><span style={{ backgroundColor: '#e5e7eb', padding: '3px 8px', borderRadius: '4px', fontSize: '12px' }}>{islem.kategori}</span></td>
                   <td style={{ padding: '12px 15px', color: '#4b5563' }}>{islem.aciklama || '-'}</td>
                   <td style={{ padding: '12px 15px', fontWeight: 'bold', color: '#dc2626', textAlign: 'right' }}>₺{Number(islem.tutar).toLocaleString('tr-TR')}</td>
+                  <td style={{ padding: '12px 15px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <button onClick={() => duzenlemeyeBasla(islem)} style={{ padding: '4px 8px', marginRight: '5px', backgroundColor: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Düzenle</button>
+                    <button onClick={() => sil(islem.id)} style={{ padding: '4px 8px', backgroundColor: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Sil</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
