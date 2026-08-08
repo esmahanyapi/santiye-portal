@@ -5,29 +5,25 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.
 
 export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
-  const [isMobile, setIsMobile] = useState(false); // Ekran boyutu takibi
+  const [isMobile, setIsMobile] = useState(false);
   const [projeler, setProjeler] = useState([]);
   const [seciliProje, setSeciliProje] = useState(null);
   const [yeniProjeAdi, setYeniProjeAdi] = useState('');
-  
   const [harcamalar, setHarcamalar] = useState([]);
   const [gelirler, setGelirler] = useState([]);
   const [aktifSekme, setAktifSekme] = useState('ozet');
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
-
   const formBaslangic = { oge: '', makbuz_no: '', fatura_no: '', tarih: new Date().toISOString().split('T')[0], kategori: '', aciklama: '', tutar: '' };
   const [form, setForm] = useState(formBaslangic);
 
   useEffect(() => { 
     setIsClient(true); 
     projeleriGetir();
-    
-    // Mobil kontrolü
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   useEffect(() => { if (seciliProje) verileriGetir(); }, [seciliProje]);
@@ -53,7 +49,7 @@ export default function Dashboard() {
   }
 
   async function sil(id) {
-    if (window.confirm("Bu kaydı silmek istediğinize emin misiniz?")) {
+    if (window.confirm("Silmek istediğinize emin misiniz?")) {
       const tablo = aktifSekme === 'gelirler' ? 'gelirler' : 'harcamalar';
       await supabase.from(tablo).delete().eq('id', id);
       await verileriGetir();
@@ -71,59 +67,69 @@ export default function Dashboard() {
 
   return (
     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', backgroundColor: '#f8fafc', fontFamily: 'system-ui, sans-serif' }}>
-      
       {/* SOL MENÜ */}
-      <div style={{ width: isMobile ? '100%' : '280px', backgroundColor: '#0f172a', color: 'white', padding: '20px' }}>
+      <div style={{ width: isMobile ? '100%' : '300px', backgroundColor: '#0f172a', color: 'white', padding: '24px' }}>
         <h2 style={{ fontSize: '18px', borderBottom: '1px solid #1e293b', paddingBottom: '15px' }}>Esmahan Yapı</h2>
-        <ul style={{ listStyle: 'none', padding: 0, margin: '15px 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <ul style={{ listStyle: 'none', padding: 0, margin: '15px 0' }}>
           {projeler.map(p => (
-            <li key={p.id} onClick={() => setSeciliProje(p)} style={{ padding: '10px', background: seciliProje?.id === p.id ? '#2563eb' : 'transparent', cursor: 'pointer', borderRadius: '6px' }}>🏢 {p.ad}</li>
+            <li key={p.id} onClick={() => setSeciliProje(p)} style={{ padding: '12px', background: seciliProje?.id === p.id ? '#2563eb' : 'transparent', borderRadius: '8px', cursor: 'pointer', marginBottom: '5px' }}>🏢 {p.ad}</li>
           ))}
         </ul>
-        <form onSubmit={e => { e.preventDefault(); supabase.from('projeler').insert([{ad: yeniProjeAdi}]).then(projeleriGetir); setYeniProjeAdi(''); }} style={{ marginTop: '20px' }}>
-          <input value={yeniProjeAdi} onChange={e => setYeniProjeAdi(e.target.value)} placeholder="Yeni Proje Adı" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: 'none' }} />
+        <form onSubmit={e => { e.preventDefault(); supabase.from('projeler').insert([{ad: yeniProjeAdi}]).then(projeleriGetir); setYeniProjeAdi(''); }}>
+          <input value={yeniProjeAdi} onChange={e => setYeniProjeAdi(e.target.value)} placeholder="Yeni Proje Adı..." style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#1e293b', color: 'white' }} />
         </form>
       </div>
 
       {/* ANA İÇERİK */}
-      <div style={{ flex: 1, padding: isMobile ? '15px' : '30px' }}>
-        {!seciliProje ? <h2>Lütfen proje seçin.</h2> : (
+      <div style={{ flex: 1, padding: isMobile ? '20px' : '40px' }}>
+        {!seciliProje ? <h2>Lütfen bir proje seçin.</h2> : (
           <>
-            <h1 style={{ fontSize: '22px', marginBottom: '20px' }}>{seciliProje.ad}</h1>
-            <div style={{ display: 'flex', gap: '5px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <h1 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '20px' }}>{seciliProje.ad}</h1>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '25px', flexWrap: 'wrap' }}>
               {['ozet', 'gelirler', 'giderler'].map(s => (
-                <button key={s} onClick={() => setAktifSekme(s)} style={{ padding: '10px 15px', background: aktifSekme === s ? '#2563eb' : '#fff', border: '1px solid #ddd', borderRadius: '5px', cursor: 'pointer', flex: 1 }}>{s.toUpperCase()}</button>
+                <button key={s} onClick={() => setAktifSekme(s)} style={{ padding: '12px 24px', backgroundColor: aktifSekme === s ? '#2563eb' : '#fff', color: aktifSekme === s ? '#fff' : '#475569', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}>{s.toUpperCase()}</button>
               ))}
             </div>
 
             {aktifSekme === 'ozet' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '15px' }}>
-                <div style={{ background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}><h3>Gelir</h3><p style={{ fontSize: '20px', color: 'green' }}>₺{gelirler.reduce((t,i)=>t+Number(i.tutar),0).toLocaleString()}</p></div>
-                <div style={{ background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}><h3>Gider</h3><p style={{ fontSize: '20px', color: 'red' }}>₺{harcamalar.reduce((t,i)=>t+Number(i.tutar),0).toLocaleString()}</p></div>
-                <div style={{ background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}><h3>Bakiye</h3><p style={{ fontSize: '20px' }}>₺{(gelirler.reduce((t,i)=>t+Number(i.tutar),0) - harcamalar.reduce((t,i)=>t+Number(i.tutar),0)).toLocaleString()}</p></div>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '20px' }}>
+                <div style={{ background: '#f0fdf4', padding: '20px', borderRadius: '16px', border: '1px solid #dcfce7' }}><h3>Gelir</h3><p style={{ fontSize: '24px', color: '#059669', fontWeight: 'bold' }}>₺{gelirler.reduce((t,i)=>t+Number(i.tutar),0).toLocaleString()}</p></div>
+                <div style={{ background: '#fef2f2', padding: '20px', borderRadius: '16px', border: '1px solid #fee2e2' }}><h3>Gider</h3><p style={{ fontSize: '24px', color: '#dc2626', fontWeight: 'bold' }}>₺{harcamalar.reduce((t,i)=>t+Number(i.tutar),0).toLocaleString()}</p></div>
+                <div style={{ background: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #dbeafe' }}><h3>Bakiye</h3><p style={{ fontSize: '24px', color: '#2563eb', fontWeight: 'bold' }}>₺{(gelirler.reduce((t,i)=>t+Number(i.tutar),0) - harcamalar.reduce((t,i)=>t+Number(i.tutar),0)).toLocaleString()}</p></div>
               </div>
             ) : (
-              <div style={{ background: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}>
-                <form onSubmit={kaydet} style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '10px', marginBottom: '20px' }}>
-                  <input type="date" value={form.tarih} onChange={e => setForm({...form, tarih: e.target.value})} />
-                  <input placeholder="Öğe" value={form.oge} onChange={e => setForm({...form, oge: e.target.value})} />
-                  <input type="number" placeholder="Tutar" value={form.tutar} onChange={e => setForm({...form, tutar: e.target.value})} />
-                  <button type="submit">Ekle</button>
+              <div style={{ background: 'white', padding: '25px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                <form onSubmit={kaydet} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: '10px', marginBottom: '20px' }}>
+                  <input type="date" value={form.tarih} onChange={e => setForm({...form, tarih: e.target.value})} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                  <input placeholder="Öğe" value={form.oge} onChange={e => setForm({...form, oge: e.target.value})} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                  <input type="number" placeholder="Tutar" value={form.tutar} onChange={e => setForm({...form, tutar: e.target.value})} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                  <button type="submit" style={{ padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>Ekle</button>
                 </form>
 
-                <div style={{ padding: '10px', background: '#f0f9ff', borderRadius: '5px', marginBottom: '10px' }}>
-                  <input placeholder="Filtrele..." value={filtreKategori} onChange={e => setFiltreKategori(e.target.value)} />
-                  <strong style={{ marginLeft: '10px' }}>Toplam: ₺{gorunenToplam.toLocaleString()}</strong>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', background: '#f8fafc', padding: '15px', borderRadius: '8px' }}>
+                  <input placeholder="Kategori Ara..." value={filtreKategori} onChange={e => setFiltreKategori(e.target.value)} style={{ padding: '8px', flex: 1 }} />
+                  <input placeholder="Taşeron Ara..." value={filtreAciklama} onChange={e => setFiltreAciklama(e.target.value)} style={{ padding: '8px', flex: 1 }} />
+                  <strong>Toplam: ₺{gorunenToplam.toLocaleString()}</strong>
                 </div>
 
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', minWidth: '600px', borderCollapse: 'collapse', textAlign: 'right' }}>
-                    <thead><tr style={{ background: '#eee' }}><th>Tarih</th><th>Öğe</th><th>Kategori</th><th>Açıklama</th><th>Tutar</th><th>İşlem</th></tr></thead>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right', fontSize: '14px' }}>
+                    <thead><tr style={{ background: '#f8fafc', borderBottom: '2px solid #ddd' }}>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>Tarih</th>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>Öğe</th>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>Kategori</th>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>Açıklama</th>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>Tutar</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Sil</th>
+                    </tr></thead>
                     <tbody>{gorunenListe.map(i => (
                       <tr key={i.id} style={{ borderBottom: '1px solid #eee' }}>
-                        <td>{i.tarih}</td><td>{i.oge}</td><td>{i.kategori}</td><td>{i.aciklama}</td>
-                        <td>₺{Number(i.tutar).toLocaleString()}</td>
-                        <td><button onClick={() => sil(i.id)} style={{ color: 'red' }}>Sil</button></td>
+                        <td style={{ padding: '12px' }}>{i.tarih}</td>
+                        <td style={{ padding: '12px' }}>{i.oge}</td>
+                        <td style={{ padding: '12px' }}>{i.kategori}</td>
+                        <td style={{ padding: '12px' }}>{i.aciklama}</td>
+                        <td style={{ padding: '12px', fontWeight: 'bold' }}>₺{Number(i.tutar).toLocaleString()}</td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}><button onClick={() => sil(i.id)} style={{ color: 'red', cursor: 'pointer' }}>✕</button></td>
                       </tr>
                     ))}</tbody>
                   </table>
