@@ -16,18 +16,54 @@ export default function Login() {
     setLoading(true);
     setError('');
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    if (error) {
-      setError(error.message);
+      console.log('LOGIN SONUCU:', {
+        user: data?.user?.email,
+        session: !!data?.session,
+        error: error?.message,
+      });
+
+      if (error) {
+        setError(`Giriş başarısız: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+
+      if (!data?.session) {
+        setError('Giriş yapıldı ancak oturum oluşturulamadı.');
+        setLoading(false);
+        return;
+      }
+
+      // Session gerçekten oluştu mu kontrol et
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError) {
+        setError(`Oturum kontrolü başarısız: ${sessionError.message}`);
+        setLoading(false);
+        return;
+      }
+
+      if (!sessionData?.session) {
+        setError('Oturum bulunamadı. Lütfen tekrar deneyin.');
+        setLoading(false);
+        return;
+      }
+
+      // Başarılı giriş
+      window.location.href = '/';
+
+    } catch (err) {
+      console.error('LOGIN EXCEPTION:', err);
+      setError(`Beklenmeyen hata: ${err.message}`);
       setLoading(false);
-      return;
     }
-
-    router.replace('/');
   }
 
   return (
@@ -54,7 +90,9 @@ export default function Login() {
         }}
       >
         <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <div style={{ fontSize: '42px', marginBottom: '10px' }}>🏗️</div>
+          <div style={{ fontSize: '42px', marginBottom: '10px' }}>
+            🏗️
+          </div>
 
           <h1
             style={{
