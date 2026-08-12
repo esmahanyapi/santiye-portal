@@ -1000,7 +1000,7 @@ export default function Dashboard() {
     });
   }
 
-  // PDF FONTLARI: Türkçe karakterler için Noto Sans kullanılır.
+  // PDF FONTLARI: Türkçe karakterler için DejaVu Sans kullanılır.
   let pdfFontCache = null;
 
   async function pdfFontlariYukle() {
@@ -1073,7 +1073,7 @@ export default function Dashboard() {
         format: 'a4'
       });
 
-      // Türkçe karakter desteği için Noto Sans fontlarını PDF'e göm.
+      // Türkçe karakter desteği için DejaVu Sans fontlarını PDF'e göm.
       doc.addFileToVFS('DejaVuSans.ttf', fontlar.regular);
       doc.addFont('DejaVuSans.ttf', 'DejaVuSans', 'normal');
       doc.addFileToVFS('DejaVuSans-Bold.ttf', fontlar.bold);
@@ -1191,7 +1191,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error('PDF oluşturma hatası:', error);
       setHata(
-        'PDF oluşturulamadı. Türkçe font dosyalarının public/fonts klasöründe olduğundan emin olun.'
+        'PDF oluşturulamadı. DejaVu Sans font dosyalarının public/fonts klasöründe olduğundan emin olun.'
       );
       setMesaj('');
     }
@@ -1281,14 +1281,14 @@ export default function Dashboard() {
         >
           <img
             src={SIDEBAR_LOGO}
-            alt="Esmahan Yapı"
+            alt="Esmahan Yapı - Ana Sayfa"
+            title="Ana Sayfaya Dön"
             onClick={() => {
               setAktifSekme('ozet');
-              setMesaj('');
               setHata('');
+              setMesaj('');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            title="Ana sayfaya dön"
             onError={(e) => {
               e.currentTarget.style.display = 'none';
             }}
