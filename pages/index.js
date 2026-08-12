@@ -357,6 +357,61 @@ export default function Dashboard() {
   );
 
   const netBakiye = toplamGelir - toplamGider;
+  // DASHBOARD ÖZET HESAPLARI
+  const toplamIslem = gelirler.length + harcamalar.length;
+
+  const buAy = new Date();
+  const buAyYil = buAy.getFullYear();
+  const buAyNo = buAy.getMonth() + 1;
+
+  const buAyGelir = gelirler.reduce((toplam, item) => {
+    if (!item.tarih) return toplam;
+    const d = new Date(`${item.tarih}T00:00:00`);
+    return d.getFullYear() === buAyYil && d.getMonth() + 1 === buAyNo
+      ? toplam + Number(item.tutar || 0)
+      : toplam;
+  }, 0);
+
+  const buAyGider = harcamalar.reduce((toplam, item) => {
+    if (!item.tarih) return toplam;
+    const d = new Date(`${item.tarih}T00:00:00`);
+    return d.getFullYear() === buAyYil && d.getMonth() + 1 === buAyNo
+      ? toplam + Number(item.tutar || 0)
+      : toplam;
+  }, 0);
+
+  const buAyNet = buAyGelir - buAyGider;
+
+  function gruplaVeSirala(liste, alan) {
+    const gruplar = {};
+    liste.forEach((item) => {
+      const ad = (item[alan] || 'Belirtilmemiş').trim() || 'Belirtilmemiş';
+      gruplar[ad] = (gruplar[ad] || 0) + Number(item.tutar || 0);
+    });
+
+    return Object.entries(gruplar)
+      .map(([ad, tutar]) => ({ ad, tutar }))
+      .sort((a, b) => b.tutar - a.tutar);
+  }
+
+  const giderKategorileri = gruplaVeSirala(harcamalar, 'kategori');
+  const odemeKaynaklari = gruplaVeSirala(harcamalar, 'odeme_kaynagi');
+
+  const sonIslemler = [
+    ...gelirler.map((item) => ({ ...item, islemTipi: 'Gelir' })),
+    ...harcamalar.map((item) => ({ ...item, islemTipi: 'Gider' }))
+  ]
+    .sort((a, b) => (b.tarih || '').localeCompare(a.tarih || ''))
+    .slice(0, 10);
+
+  const dashboardFormat = (tutar) =>
+    `${Number(tutar || 0).toLocaleString('tr-TR')} TL`;
+
+  const buAyAdi = buAy.toLocaleDateString('tr-TR', {
+    month: 'long',
+    year: 'numeric'
+  });
+
   // DOSYA ADI İÇİN PROJE ADINI TEMİZLE
   function dosyaAdiOlustur() {
     const projeAdi = seciliProje?.ad || 'proje';
@@ -1000,160 +1055,321 @@ export default function Dashboard() {
 
             {/* ÖZET */}
             {aktifSekme === 'ozet' ? (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    'repeat(auto-fit, minmax(280px, 1fr))',
-                  gap: '24px'
-                }}
-              >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+                {/* ÜST ÖZET KARTLARI */}
                 <div
                   style={{
-                    background:
-                      'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)',
-                    padding: '25px',
-                    borderRadius: '16px',
-                    border: '1px solid #dcfce7',
-                    boxShadow:
-                      '0 4px 6px -1px rgba(0,0,0,0.02)'
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '18px'
                   }}
                 >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: '15px'
-                    }}
-                  >
-                    <span
-                      style={{
-                        color: '#166534',
-                        fontSize: '13px',
-                        fontWeight: '700',
-                        textTransform: 'uppercase'
-                      }}
-                    >
-                      Toplam Gelir
-                    </span>
-
-                    <span style={{ fontSize: '20px' }}>
-                      📈
-                    </span>
-                  </div>
-
-                  <p
-                    style={{
-                      fontSize: '32px',
-                      fontWeight: '800',
+                  {[
+                    {
+                      title: 'Toplam Gelir',
+                      value: toplamGelir,
+                      icon: '📈',
                       color: '#059669',
-                      margin: 0
-                    }}
-                  >
-                    ₺
-                    {toplamGelir.toLocaleString('tr-TR')}
-                  </p>
-                </div>
-
-                <div
-                  style={{
-                    background:
-                      'linear-gradient(135deg, #ffffff 0%, #fef2f2 100%)',
-                    padding: '25px',
-                    borderRadius: '16px',
-                    border: '1px solid #fee2e2',
-                    boxShadow:
-                      '0 4px 6px -1px rgba(0,0,0,0.02)'
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: '15px'
-                    }}
-                  >
-                    <span
-                      style={{
-                        color: '#991b1b',
-                        fontSize: '13px',
-                        fontWeight: '700',
-                        textTransform: 'uppercase'
-                      }}
-                    >
-                      Toplam Gider
-                    </span>
-
-                    <span style={{ fontSize: '20px' }}>
-                      📉
-                    </span>
-                  </div>
-
-                  <p
-                    style={{
-                      fontSize: '32px',
-                      fontWeight: '800',
+                      background: 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)',
+                      border: '#dcfce7'
+                    },
+                    {
+                      title: 'Toplam Gider',
+                      value: toplamGider,
+                      icon: '📉',
                       color: '#dc2626',
-                      margin: 0
-                    }}
-                  >
-                    ₺
-                    {toplamGider.toLocaleString('tr-TR')}
-                  </p>
+                      background: 'linear-gradient(135deg, #ffffff 0%, #fef2f2 100%)',
+                      border: '#fee2e2'
+                    },
+                    {
+                      title: 'Net Proje Bakiyesi',
+                      value: netBakiye,
+                      icon: '💰',
+                      color: netBakiye >= 0 ? '#2563eb' : '#dc2626',
+                      background: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
+                      border: '#dbeafe'
+                    },
+                    {
+                      title: 'Toplam İşlem',
+                      value: toplamIslem,
+                      icon: '🧾',
+                      color: '#6366f1',
+                      background: 'linear-gradient(135deg, #ffffff 0%, #eef2ff 100%)',
+                      border: '#e0e7ff',
+                      isCount: true
+                    }
+                  ].map((kart) => (
+                    <div
+                      key={kart.title}
+                      style={{
+                        background: kart.background,
+                        padding: '22px',
+                        borderRadius: '16px',
+                        border: `1px solid ${kart.border}`,
+                        boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: '12px'
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: kart.color,
+                            fontSize: '12px',
+                            fontWeight: '800',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.4px'
+                          }}
+                        >
+                          {kart.title}
+                        </span>
+                        <span style={{ fontSize: '21px' }}>{kart.icon}</span>
+                      </div>
+                      <p
+                        style={{
+                          fontSize: '28px',
+                          fontWeight: '800',
+                          color: kart.color,
+                          margin: 0
+                        }}
+                      >
+                        {kart.isCount ? kart.value.toLocaleString('tr-TR') : `₺${kart.value.toLocaleString('tr-TR')}`}
+                      </p>
+                    </div>
+                  ))}
                 </div>
 
+                {/* BU AY */}
                 <div
                   style={{
-                    background:
-                      'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
-                    padding: '25px',
+                    background: '#ffffff',
+                    padding: '24px',
                     borderRadius: '16px',
-                    border: '1px solid #dbeafe',
-                    boxShadow:
-                      '0 4px 6px -1px rgba(0,0,0,0.02)'
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                    <div>
+                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>📅 Bu Ay</h3>
+                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px', textTransform: 'capitalize' }}>
+                        {buAyAdi}
+                      </p>
+                    </div>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Aylık finansal durum</span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      gap: '14px'
+                    }}
+                  >
+                    <div style={{ padding: '16px', borderRadius: '12px', background: '#f0fdf4', border: '1px solid #dcfce7' }}>
+                      <div style={{ color: '#166534', fontSize: '12px', fontWeight: '700' }}>AYLIK GELİR</div>
+                      <div style={{ color: '#059669', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
+                        {dashboardFormat(buAyGelir)}
+                      </div>
+                    </div>
+                    <div style={{ padding: '16px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fee2e2' }}>
+                      <div style={{ color: '#991b1b', fontSize: '12px', fontWeight: '700' }}>AYLIK GİDER</div>
+                      <div style={{ color: '#dc2626', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
+                        {dashboardFormat(buAyGider)}
+                      </div>
+                    </div>
+                    <div style={{ padding: '16px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #dbeafe' }}>
+                      <div style={{ color: '#1e40af', fontSize: '12px', fontWeight: '700' }}>AYLIK NET</div>
+                      <div style={{ color: buAyNet >= 0 ? '#2563eb' : '#dc2626', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
+                        {dashboardFormat(buAyNet)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* GİDER DAĞILIMI + ÖDEME KAYNAKLARI */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: '24px'
                   }}
                 >
                   <div
                     style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: '15px'
+                      background: '#ffffff',
+                      padding: '24px',
+                      borderRadius: '16px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
                     }}
                   >
-                    <span
-                      style={{
-                        color: '#1e40af',
-                        fontSize: '13px',
-                        fontWeight: '700',
-                        textTransform: 'uppercase'
-                      }}
-                    >
-                      Net Kasa / Bakiye
-                    </span>
+                    <div style={{ marginBottom: '18px' }}>
+                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>📊 Gider Dağılımı</h3>
+                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Kategori bazında toplam giderler</p>
+                    </div>
 
-                    <span style={{ fontSize: '20px' }}>
-                      💰
-                    </span>
+                    {giderKategorileri.length === 0 ? (
+                      <div style={{ padding: '25px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '10px' }}>
+                        Henüz gider kaydı bulunmuyor.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '13px' }}>
+                        {giderKategorileri.map((item) => {
+                          const yuzde = toplamGider > 0 ? (item.tutar / toplamGider) * 100 : 0;
+                          return (
+                            <div key={item.ad}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '6px', fontSize: '13px' }}>
+                                <span style={{ color: '#334155', fontWeight: '600' }}>{item.ad}</span>
+                                <span style={{ color: '#0f172a', fontWeight: '700', whiteSpace: 'nowrap' }}>
+                                  {dashboardFormat(item.tutar)}
+                                </span>
+                              </div>
+                              <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '99px', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.min(yuzde, 100)}%`, height: '100%', background: '#dc2626', borderRadius: '99px' }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
-                  <p
+                  <div
                     style={{
-                      fontSize: '32px',
-                      fontWeight: '800',
-                      color:
-                        netBakiye >= 0
-                          ? '#2563eb'
-                          : '#dc2626',
-                      margin: 0
+                      background: '#ffffff',
+                      padding: '24px',
+                      borderRadius: '16px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
                     }}
                   >
-                    ₺
-                    {netBakiye.toLocaleString('tr-TR')}
-                  </p>
+                    <div style={{ marginBottom: '18px' }}>
+                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>💳 Ödeme Kaynakları</h3>
+                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Giderlerin hangi kaynaktan ödendiği</p>
+                    </div>
+
+                    {odemeKaynaklari.length === 0 ? (
+                      <div style={{ padding: '25px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '10px' }}>
+                        Henüz ödeme kaynağı kaydı bulunmuyor.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {odemeKaynaklari.map((item) => (
+                          <div
+                            key={item.ad}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '12px',
+                              padding: '12px 14px',
+                              borderRadius: '10px',
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0'
+                            }}
+                          >
+                            <span style={{ color: '#334155', fontWeight: '600', fontSize: '13px' }}>{item.ad}</span>
+                            <span style={{ color: '#1e40af', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                              {dashboardFormat(item.tutar)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {/* SON İŞLEMLER */}
+                <div
+                  style={{
+                    background: '#ffffff',
+                    padding: '24px',
+                    borderRadius: '16px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                    <div>
+                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>🕐 Son İşlemler</h3>
+                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Projeye ait son 10 gelir/gider kaydı</p>
+                    </div>
+                    <span style={{ color: '#64748b', fontSize: '12px' }}>{toplamIslem} toplam kayıt</span>
+                  </div>
+
+                  {sonIslemler.length === 0 ? (
+                    <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '10px' }}>
+                      Henüz finansal işlem bulunmuyor.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b', textAlign: 'left' }}>
+                            <th style={{ padding: '10px' }}>Tarih</th>
+                            <th style={{ padding: '10px' }}>Tür</th>
+                            <th style={{ padding: '10px' }}>Öğe / Firma / Kişi</th>
+                            <th style={{ padding: '10px' }}>Kategori</th>
+                            <th style={{ padding: '10px' }}>Ödeme Kaynağı</th>
+                            <th style={{ padding: '10px', textAlign: 'right' }}>Tutar</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sonIslemler.map((item) => (
+                            <tr key={`${item.islemTipi}-${item.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '11px 10px', whiteSpace: 'nowrap', color: '#475569' }}>
+                                {item.tarih || '-'}
+                              </td>
+                              <td style={{ padding: '11px 10px' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '4px 8px',
+                                    borderRadius: '6px',
+                                    fontSize: '11px',
+                                    fontWeight: '800',
+                                    background: item.islemTipi === 'Gelir' ? '#dcfce7' : '#fee2e2',
+                                    color: item.islemTipi === 'Gelir' ? '#166534' : '#991b1b'
+                                  }}
+                                >
+                                  {item.islemTipi}
+                                </span>
+                              </td>
+                              <td style={{ padding: '11px 10px', fontWeight: '600', color: '#0f172a' }}>
+                                {item.oge || '-'}
+                              </td>
+                              <td style={{ padding: '11px 10px', color: '#475569' }}>
+                                {item.kategori || '-'}
+                              </td>
+                              <td style={{ padding: '11px 10px', color: '#64748b' }}>
+                                {item.islemTipi === 'Gider' ? (item.odeme_kaynagi || '-') : '-'}
+                              </td>
+                              <td
+                                style={{
+                                  padding: '11px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: '800',
+                                  color: item.islemTipi === 'Gelir' ? '#059669' : '#dc2626',
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {item.islemTipi === 'Gelir' ? '+' : '-'}₺{Number(item.tutar || 0).toLocaleString('tr-TR')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
               </div>
             ) : (
               /* GELİR / GİDER */
