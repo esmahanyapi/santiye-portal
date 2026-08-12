@@ -28,7 +28,7 @@ export default function Dashboard() {
   oge: '',
   makbuz_no: '',
   fatura_no: '',
-  tarih: new Date().toISOString().split('T')[0],
+  tarih: bugununTarihi(),
   kategori: '',
   aciklama: '',
   tutar: '',
@@ -263,15 +263,25 @@ export default function Dashboard() {
         ? 'gelirler'
         : 'harcamalar';
 
+    // Gelirler tablosuna giderlere özel alan göndermiyoruz.
+    // Ödeme kaynağı yalnızca harcamalar tablosunda tutulur.
+    const kayit = {
+      oge: form.oge,
+      makbuz_no: form.makbuz_no,
+      fatura_no: form.fatura_no,
+      tarih: form.tarih,
+      kategori: form.kategori,
+      aciklama: form.aciklama,
+      tutar: Number(form.tutar),
+      proje_id: seciliProje.id,
+      ...(aktifSekme === 'giderler'
+        ? { odeme_kaynagi: form.odeme_kaynagi || 'Kasa' }
+        : {})
+    };
+
     const { error } = await supabase
       .from(tablo)
-      .insert([
-        {
-          ...form,
-          proje_id: seciliProje.id,
-          tutar: Number(form.tutar)
-        }
-      ]);
+      .insert([kayit]);
 
     if (error) {
       console.error('Kayıt hatası:', error);
@@ -803,6 +813,7 @@ export default function Dashboard() {
                     setAktifSekme(s.id);
                     setFiltreKategori('');
                     setFiltreAciklama('');
+                    setForm(formBaslangic);
                     setHata('');
                     setMesaj('');
                   }}
@@ -1096,6 +1107,32 @@ export default function Dashboard() {
                     }}
                   />
 
+                  {aktifSekme === 'giderler' && (
+                    <select
+                      value={form.odeme_kaynagi || 'Kasa'}
+                      onChange={e =>
+                        setForm({
+                          ...form,
+                          odeme_kaynagi: e.target.value
+                        })
+                      }
+                      style={{
+                        padding: '10px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        background: '#fff',
+                        minWidth: '150px',
+                        color: '#0f172a'
+                      }}
+                    >
+                      <option value="Kasa">💰 Kasa</option>
+                      <option value="Banka">🏦 Banka</option>
+                      <option value="Şahsi Ödeme">👤 Şahsi Ödeme</option>
+                      <option value="Çek">🧾 Çek</option>
+                      <option value="Diğer">🔄 Diğer</option>
+                    </select>
+                  )}
+
                   <input
                     placeholder="Açıklama / Taşeron"
                     value={form.aciklama}
@@ -1269,6 +1306,9 @@ export default function Dashboard() {
                         <th>Makbuz No</th>
                         <th>Fatura No</th>
                         <th>Kategori</th>
+                        {aktifSekme === 'giderler' && (
+                          <th>Ödeme Kaynağı</th>
+                        )}
                         <th>Açıklama</th>
                         <th>Tutar</th>
                         <th>İşlem</th>
@@ -1313,6 +1353,26 @@ export default function Dashboard() {
                             {i.kategori ||
                               '-'}
                           </td>
+
+                          {aktifSekme === 'giderler' && (
+                            <td>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '4px 9px',
+                                  borderRadius: '6px',
+                                  background: '#eff6ff',
+                                  border: '1px solid #bfdbfe',
+                                  color: '#1d4ed8',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {i.odeme_kaynagi || 'Kasa'}
+                              </span>
+                            </td>
+                          )}
 
                           <td>
                             {i.aciklama ||
@@ -1369,7 +1429,7 @@ export default function Dashboard() {
                         0 && (
                         <tr>
                           <td
-                            colSpan="8"
+                            colSpan={aktifSekme === 'giderler' ? 9 : 8}
                             style={{
                               padding:
                                 '40px',
