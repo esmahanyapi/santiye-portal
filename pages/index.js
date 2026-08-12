@@ -24,15 +24,16 @@ export default function Dashboard() {
   const [hata, setHata] = useState('');
   const [projeEkleniyor, setProjeEkleniyor] = useState(false);
 
-  const formBaslangic = {
-    oge: '',
-    makbuz_no: '',
-    fatura_no: '',
-    tarih: new Date().toISOString().split('T')[0],
-    kategori: '',
-    aciklama: '',
-    tutar: ''
-  };
+ const formBaslangic = {
+  oge: '',
+  makbuz_no: '',
+  fatura_no: '',
+  tarih: new Date().toISOString().split('T')[0],
+  kategori: '',
+  aciklama: '',
+  tutar: '',
+  odeme_kaynagi: 'Kasa'
+};
 
   const [form, setForm] = useState(formBaslangic);
 
