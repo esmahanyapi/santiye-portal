@@ -15,6 +15,7 @@ export default function Dashboard() {
 
   const [harcamalar, setHarcamalar] = useState([]);
   const [gelirler, setGelirler] = useState([]);
+  const [alacakBorclar, setAlacakBorclar] = useState([]);
   const [aktifSekme, setAktifSekme] = useState('ozet');
 
   const [filtreKategori, setFiltreKategori] = useState('');
@@ -46,6 +47,17 @@ export default function Dashboard() {
   };
 
   const [form, setForm] = useState(formBaslangic);
+  const finansFormBaslangic = {
+    tur: 'Alacak',
+    taraf: '',
+    tarih: bugununTarihi(),
+    vade_tarihi: '',
+    kategori: '',
+    aciklama: '',
+    tutar: '',
+    durum: 'Bekliyor'
+  };
+  const [finansForm, setFinansForm] = useState(finansFormBaslangic);
 
   // SAYFA AÇILDIĞINDA KULLANICI OTURUMUNU KONTROL ET
   useEffect(() => {
@@ -124,6 +136,12 @@ export default function Dashboard() {
       .select('*')
       .eq('proje_id', seciliProje.id);
 
+    const { data: f, error: fError } = await supabase
+      .from('alacak_borclar')
+      .select('*')
+      .eq('proje_id', seciliProje.id)
+      .order('vade_tarihi', { ascending: true, nullsFirst: false });
+
     if (hError) {
       console.error('Harcamalar alınamadı:', hError);
     }
@@ -131,9 +149,13 @@ export default function Dashboard() {
     if (gError) {
       console.error('Gelirler alınamadı:', gError);
     }
+    if (fError) {
+      console.error('Alacak/borç kayıtları alınamadı:', fError);
+    }
 
     setHarcamalar(h || []);
     setGelirler(g || []);
+    setAlacakBorclar(f || []);
   }
 
   // YENİ PROJE EKLE
@@ -189,6 +211,102 @@ export default function Dashboard() {
       console.error('Beklenmeyen hata:', error);
       setHata('Beklenmeyen bir hata oluştu.');
     }
+  }
+
+  // ALACAK / BORÇ KAYDET / GÜNCELLE
+  async function finansKaydet(event) {
+    event.preventDefault();
+
+    if (!seciliProje) {
+      setHata('Önce bir proje seçmelisiniz.');
+      return;
+    }
+
+    const tutar = Number(finansForm.tutar);
+    if (!finansForm.taraf.trim() || !finansForm.tarih || !finansForm.kategori.trim()) {
+      setHata('Tür, taraf, tarih ve kategori alanları zorunludur.');
+      return;
+    }
+    if (!Number.isFinite(tutar) || tutar <= 0) {
+      setHata('Lütfen geçerli ve 0’dan büyük bir tutar girin.');
+      return;
+    }
+
+    setHata('');
+    setMesaj('');
+
+    const kayit = {
+      tur: finansForm.tur,
+      taraf: finansForm.taraf.trim(),
+      tarih: finansForm.tarih,
+      vade_tarihi: finansForm.vade_tarihi || null,
+      kategori: finansForm.kategori.trim(),
+      aciklama: finansForm.aciklama.trim(),
+      tutar,
+      durum: finansForm.durum,
+      proje_id: seciliProje.id
+    };
+
+    let error = null;
+    if (duzenlenenKayitId && aktifSekme === 'finans') {
+      const sonuc = await supabase
+        .from('alacak_borclar')
+        .update(kayit)
+        .eq('id', duzenlenenKayitId)
+        .eq('proje_id', seciliProje.id);
+      error = sonuc.error;
+    } else {
+      const sonuc = await supabase.from('alacak_borclar').insert([kayit]);
+      error = sonuc.error;
+    }
+
+    if (error) {
+      console.error('Alacak/borç kaydetme hatası:', error);
+      setHata('Kayıt kaydedilemedi: ' + error.message);
+      return;
+    }
+
+    setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() });
+    setDuzenlenenKayitId(null);
+    setMesaj(duzenlenenKayitId ? 'Kayıt başarıyla güncellendi.' : 'Kayıt başarıyla eklendi.');
+    await verileriGetir();
+  }
+
+  function finansDuzenle(kayit) {
+    setFinansForm({
+      tur: kayit.tur || 'Alacak',
+      taraf: kayit.taraf || '',
+      tarih: kayit.tarih || bugununTarihi(),
+      vade_tarihi: kayit.vade_tarihi || '',
+      kategori: kayit.kategori || '',
+      aciklama: kayit.aciklama || '',
+      tutar: kayit.tutar ?? '',
+      durum: kayit.durum || 'Bekliyor'
+    });
+    setDuzenlenenKayitId(kayit.id);
+    setMesaj('Kayıt düzenleme modunda.');
+    setHata('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function finansSil(id) {
+    if (!window.confirm('Bu alacak/borç kaydını silmek istediğinize emin misiniz?')) return;
+    const { error } = await supabase
+      .from('alacak_borclar')
+      .delete()
+      .eq('id', id)
+      .eq('proje_id', seciliProje.id);
+    if (error) {
+      setHata('Kayıt silinemedi: ' + error.message);
+      return;
+    }
+    if (duzenlenenKayitId === id) {
+      setDuzenlenenKayitId(null);
+      setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() });
+    }
+    setMesaj('Kayıt silindi.');
+    setHata('');
+    await verileriGetir();
   }
 
   // GELİR / GİDER KAYDET / GÜNCELLE
@@ -315,7 +433,7 @@ export default function Dashboard() {
   }
 
   const aktifListe =
-    aktifSekme === 'gelirler' ? gelirler : harcamalar;
+    aktifSekme === 'gelirler' ? gelirler : aktifSekme === 'giderler' ? harcamalar : alacakBorclar;
 
   const gorunenListe = aktifListe.filter((item) => {
     const kategoriUygun =
@@ -357,61 +475,6 @@ export default function Dashboard() {
   );
 
   const netBakiye = toplamGelir - toplamGider;
-  // DASHBOARD ÖZET HESAPLARI
-  const toplamIslem = gelirler.length + harcamalar.length;
-
-  const buAy = new Date();
-  const buAyYil = buAy.getFullYear();
-  const buAyNo = buAy.getMonth() + 1;
-
-  const buAyGelir = gelirler.reduce((toplam, item) => {
-    if (!item.tarih) return toplam;
-    const d = new Date(`${item.tarih}T00:00:00`);
-    return d.getFullYear() === buAyYil && d.getMonth() + 1 === buAyNo
-      ? toplam + Number(item.tutar || 0)
-      : toplam;
-  }, 0);
-
-  const buAyGider = harcamalar.reduce((toplam, item) => {
-    if (!item.tarih) return toplam;
-    const d = new Date(`${item.tarih}T00:00:00`);
-    return d.getFullYear() === buAyYil && d.getMonth() + 1 === buAyNo
-      ? toplam + Number(item.tutar || 0)
-      : toplam;
-  }, 0);
-
-  const buAyNet = buAyGelir - buAyGider;
-
-  function gruplaVeSirala(liste, alan) {
-    const gruplar = {};
-    liste.forEach((item) => {
-      const ad = (item[alan] || 'Belirtilmemiş').trim() || 'Belirtilmemiş';
-      gruplar[ad] = (gruplar[ad] || 0) + Number(item.tutar || 0);
-    });
-
-    return Object.entries(gruplar)
-      .map(([ad, tutar]) => ({ ad, tutar }))
-      .sort((a, b) => b.tutar - a.tutar);
-  }
-
-  const giderKategorileri = gruplaVeSirala(harcamalar, 'kategori');
-  const odemeKaynaklari = gruplaVeSirala(harcamalar, 'odeme_kaynagi');
-
-  const sonIslemler = [
-    ...gelirler.map((item) => ({ ...item, islemTipi: 'Gelir' })),
-    ...harcamalar.map((item) => ({ ...item, islemTipi: 'Gider' }))
-  ]
-    .sort((a, b) => (b.tarih || '').localeCompare(a.tarih || ''))
-    .slice(0, 10);
-
-  const dashboardFormat = (tutar) =>
-    `${Number(tutar || 0).toLocaleString('tr-TR')} TL`;
-
-  const buAyAdi = buAy.toLocaleDateString('tr-TR', {
-    month: 'long',
-    year: 'numeric'
-  });
-
   // DOSYA ADI İÇİN PROJE ADINI TEMİZLE
   function dosyaAdiOlustur() {
     const projeAdi = seciliProje?.ad || 'proje';
@@ -1008,6 +1071,11 @@ export default function Dashboard() {
                   id: 'giderler',
                   label: '📉 Gider Kalemleri',
                   color: '#dc2626'
+                },
+                {
+                  id: 'finans',
+                  label: '💳 Alacak / Borç',
+                  color: '#7c3aed'
                 }
               ].map((s) => (
                 <button
@@ -1055,321 +1123,228 @@ export default function Dashboard() {
 
             {/* ÖZET */}
             {aktifSekme === 'ozet' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-                {/* ÜST ÖZET KARTLARI */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: '24px'
+                }}
+              >
                 <div
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                    gap: '18px'
+                    background:
+                      'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)',
+                    padding: '25px',
+                    borderRadius: '16px',
+                    border: '1px solid #dcfce7',
+                    boxShadow:
+                      '0 4px 6px -1px rgba(0,0,0,0.02)'
                   }}
                 >
-                  {[
-                    {
-                      title: 'Toplam Gelir',
-                      value: toplamGelir,
-                      icon: '📈',
-                      color: '#059669',
-                      background: 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)',
-                      border: '#dcfce7'
-                    },
-                    {
-                      title: 'Toplam Gider',
-                      value: toplamGider,
-                      icon: '📉',
-                      color: '#dc2626',
-                      background: 'linear-gradient(135deg, #ffffff 0%, #fef2f2 100%)',
-                      border: '#fee2e2'
-                    },
-                    {
-                      title: 'Net Proje Bakiyesi',
-                      value: netBakiye,
-                      icon: '💰',
-                      color: netBakiye >= 0 ? '#2563eb' : '#dc2626',
-                      background: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
-                      border: '#dbeafe'
-                    },
-                    {
-                      title: 'Toplam İşlem',
-                      value: toplamIslem,
-                      icon: '🧾',
-                      color: '#6366f1',
-                      background: 'linear-gradient(135deg, #ffffff 0%, #eef2ff 100%)',
-                      border: '#e0e7ff',
-                      isCount: true
-                    }
-                  ].map((kart) => (
-                    <div
-                      key={kart.title}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '15px'
+                    }}
+                  >
+                    <span
                       style={{
-                        background: kart.background,
-                        padding: '22px',
-                        borderRadius: '16px',
-                        border: `1px solid ${kart.border}`,
-                        boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
+                        color: '#166534',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        textTransform: 'uppercase'
                       }}
                     >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          marginBottom: '12px'
-                        }}
-                      >
-                        <span
-                          style={{
-                            color: kart.color,
-                            fontSize: '12px',
-                            fontWeight: '800',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.4px'
-                          }}
-                        >
-                          {kart.title}
-                        </span>
-                        <span style={{ fontSize: '21px' }}>{kart.icon}</span>
-                      </div>
-                      <p
-                        style={{
-                          fontSize: '28px',
-                          fontWeight: '800',
-                          color: kart.color,
-                          margin: 0
-                        }}
-                      >
-                        {kart.isCount ? kart.value.toLocaleString('tr-TR') : `₺${kart.value.toLocaleString('tr-TR')}`}
-                      </p>
-                    </div>
-                  ))}
+                      Toplam Gelir
+                    </span>
+
+                    <span style={{ fontSize: '20px' }}>
+                      📈
+                    </span>
+                  </div>
+
+                  <p
+                    style={{
+                      fontSize: '32px',
+                      fontWeight: '800',
+                      color: '#059669',
+                      margin: 0
+                    }}
+                  >
+                    ₺
+                    {toplamGelir.toLocaleString('tr-TR')}
+                  </p>
                 </div>
 
-                {/* BU AY */}
                 <div
                   style={{
-                    background: '#ffffff',
-                    padding: '24px',
+                    background:
+                      'linear-gradient(135deg, #ffffff 0%, #fef2f2 100%)',
+                    padding: '25px',
                     borderRadius: '16px',
-                    border: '1px solid #e2e8f0',
-                    boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
+                    border: '1px solid #fee2e2',
+                    boxShadow:
+                      '0 4px 6px -1px rgba(0,0,0,0.02)'
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-                    <div>
-                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>📅 Bu Ay</h3>
-                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px', textTransform: 'capitalize' }}>
-                        {buAyAdi}
-                      </p>
-                    </div>
-                    <span style={{ fontSize: '12px', color: '#64748b' }}>Aylık finansal durum</span>
-                  </div>
-
                   <div
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                      gap: '14px'
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '15px'
                     }}
                   >
-                    <div style={{ padding: '16px', borderRadius: '12px', background: '#f0fdf4', border: '1px solid #dcfce7' }}>
-                      <div style={{ color: '#166534', fontSize: '12px', fontWeight: '700' }}>AYLIK GELİR</div>
-                      <div style={{ color: '#059669', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
-                        {dashboardFormat(buAyGelir)}
-                      </div>
-                    </div>
-                    <div style={{ padding: '16px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fee2e2' }}>
-                      <div style={{ color: '#991b1b', fontSize: '12px', fontWeight: '700' }}>AYLIK GİDER</div>
-                      <div style={{ color: '#dc2626', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
-                        {dashboardFormat(buAyGider)}
-                      </div>
-                    </div>
-                    <div style={{ padding: '16px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #dbeafe' }}>
-                      <div style={{ color: '#1e40af', fontSize: '12px', fontWeight: '700' }}>AYLIK NET</div>
-                      <div style={{ color: buAyNet >= 0 ? '#2563eb' : '#dc2626', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
-                        {dashboardFormat(buAyNet)}
-                      </div>
-                    </div>
+                    <span
+                      style={{
+                        color: '#991b1b',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        textTransform: 'uppercase'
+                      }}
+                    >
+                      Toplam Gider
+                    </span>
+
+                    <span style={{ fontSize: '20px' }}>
+                      📉
+                    </span>
                   </div>
+
+                  <p
+                    style={{
+                      fontSize: '32px',
+                      fontWeight: '800',
+                      color: '#dc2626',
+                      margin: 0
+                    }}
+                  >
+                    ₺
+                    {toplamGider.toLocaleString('tr-TR')}
+                  </p>
                 </div>
 
-                {/* GİDER DAĞILIMI + ÖDEME KAYNAKLARI */}
                 <div
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                    gap: '24px'
+                    background:
+                      'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
+                    padding: '25px',
+                    borderRadius: '16px',
+                    border: '1px solid #dbeafe',
+                    boxShadow:
+                      '0 4px 6px -1px rgba(0,0,0,0.02)'
                   }}
                 >
                   <div
                     style={{
-                      background: '#ffffff',
-                      padding: '24px',
-                      borderRadius: '16px',
-                      border: '1px solid #e2e8f0',
-                      boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '15px'
                     }}
                   >
-                    <div style={{ marginBottom: '18px' }}>
-                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>📊 Gider Dağılımı</h3>
-                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Kategori bazında toplam giderler</p>
-                    </div>
+                    <span
+                      style={{
+                        color: '#1e40af',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        textTransform: 'uppercase'
+                      }}
+                    >
+                      Net Kasa / Bakiye
+                    </span>
 
-                    {giderKategorileri.length === 0 ? (
-                      <div style={{ padding: '25px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '10px' }}>
-                        Henüz gider kaydı bulunmuyor.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '13px' }}>
-                        {giderKategorileri.map((item) => {
-                          const yuzde = toplamGider > 0 ? (item.tutar / toplamGider) * 100 : 0;
-                          return (
-                            <div key={item.ad}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '6px', fontSize: '13px' }}>
-                                <span style={{ color: '#334155', fontWeight: '600' }}>{item.ad}</span>
-                                <span style={{ color: '#0f172a', fontWeight: '700', whiteSpace: 'nowrap' }}>
-                                  {dashboardFormat(item.tutar)}
-                                </span>
-                              </div>
-                              <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '99px', overflow: 'hidden' }}>
-                                <div style={{ width: `${Math.min(yuzde, 100)}%`, height: '100%', background: '#dc2626', borderRadius: '99px' }} />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <span style={{ fontSize: '20px' }}>
+                      💰
+                    </span>
                   </div>
 
-                  <div
+                  <p
                     style={{
-                      background: '#ffffff',
-                      padding: '24px',
-                      borderRadius: '16px',
-                      border: '1px solid #e2e8f0',
-                      boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
+                      fontSize: '32px',
+                      fontWeight: '800',
+                      color:
+                        netBakiye >= 0
+                          ? '#2563eb'
+                          : '#dc2626',
+                      margin: 0
                     }}
                   >
-                    <div style={{ marginBottom: '18px' }}>
-                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>💳 Ödeme Kaynakları</h3>
-                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Giderlerin hangi kaynaktan ödendiği</p>
-                    </div>
-
-                    {odemeKaynaklari.length === 0 ? (
-                      <div style={{ padding: '25px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '10px' }}>
-                        Henüz ödeme kaynağı kaydı bulunmuyor.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {odemeKaynaklari.map((item) => (
-                          <div
-                            key={item.ad}
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              gap: '12px',
-                              padding: '12px 14px',
-                              borderRadius: '10px',
-                              background: '#f8fafc',
-                              border: '1px solid #e2e8f0'
-                            }}
-                          >
-                            <span style={{ color: '#334155', fontWeight: '600', fontSize: '13px' }}>{item.ad}</span>
-                            <span style={{ color: '#1e40af', fontWeight: '800', whiteSpace: 'nowrap' }}>
-                              {dashboardFormat(item.tutar)}
-                            </span>
+                    ₺
+                    {netBakiye.toLocaleString('tr-TR')}
+                  </p>
+                </div>
+              </div>
+            ) : aktifSekme === 'finans' ? (
+              <div style={{ display: 'grid', gap: '24px' }}>
+                {(() => {
+                  const alacakToplam = alacakBorclar.filter((x) => x.tur === 'Alacak').reduce((t, x) => t + Number(x.tutar || 0), 0);
+                  const borcToplam = alacakBorclar.filter((x) => x.tur === 'Borç').reduce((t, x) => t + Number(x.tutar || 0), 0);
+                  const bekleyenAlacak = alacakBorclar.filter((x) => x.tur === 'Alacak' && x.durum !== 'Ödendi').reduce((t, x) => t + Number(x.tutar || 0), 0);
+                  const bekleyenBorc = alacakBorclar.filter((x) => x.tur === 'Borç' && x.durum !== 'Ödendi').reduce((t, x) => t + Number(x.tutar || 0), 0);
+                  return (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '16px' }}>
+                        {[
+                          ['Toplam Alacak', alacakToplam, '#059669', '#ecfdf5'],
+                          ['Toplam Borç', borcToplam, '#dc2626', '#fef2f2'],
+                          ['Bekleyen Alacak', bekleyenAlacak, '#2563eb', '#eff6ff'],
+                          ['Bekleyen Borç', bekleyenBorc, '#ea580c', '#fff7ed']
+                        ].map(([baslik, tutar, renk, arka]) => (
+                          <div key={baslik} style={{ padding: '20px', borderRadius: '14px', background: arka, border: `1px solid ${renk}22` }}>
+                            <div style={{ fontSize: '12px', fontWeight: '700', color: renk, textTransform: 'uppercase' }}>{baslik}</div>
+                            <div style={{ marginTop: '8px', fontSize: '27px', fontWeight: '800', color: renk }}>₺{Number(tutar).toLocaleString('tr-TR')}</div>
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
-                </div>
 
-                {/* SON İŞLEMLER */}
-                <div
-                  style={{
-                    background: '#ffffff',
-                    padding: '24px',
-                    borderRadius: '16px',
-                    border: '1px solid #e2e8f0',
-                    boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-                    <div>
-                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>🕐 Son İşlemler</h3>
-                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Projeye ait son 10 gelir/gider kaydı</p>
-                    </div>
-                    <span style={{ color: '#64748b', fontSize: '12px' }}>{toplamIslem} toplam kayıt</span>
-                  </div>
-
-                  {sonIslemler.length === 0 ? (
-                    <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '10px' }}>
-                      Henüz finansal işlem bulunmuyor.
-                    </div>
-                  ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                        <thead>
-                          <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b', textAlign: 'left' }}>
-                            <th style={{ padding: '10px' }}>Tarih</th>
-                            <th style={{ padding: '10px' }}>Tür</th>
-                            <th style={{ padding: '10px' }}>Öğe / Firma / Kişi</th>
-                            <th style={{ padding: '10px' }}>Kategori</th>
-                            <th style={{ padding: '10px' }}>Ödeme Kaynağı</th>
-                            <th style={{ padding: '10px', textAlign: 'right' }}>Tutar</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sonIslemler.map((item) => (
-                            <tr key={`${item.islemTipi}-${item.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '11px 10px', whiteSpace: 'nowrap', color: '#475569' }}>
-                                {item.tarih || '-'}
-                              </td>
-                              <td style={{ padding: '11px 10px' }}>
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    padding: '4px 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '11px',
-                                    fontWeight: '800',
-                                    background: item.islemTipi === 'Gelir' ? '#dcfce7' : '#fee2e2',
-                                    color: item.islemTipi === 'Gelir' ? '#166534' : '#991b1b'
-                                  }}
-                                >
-                                  {item.islemTipi}
-                                </span>
-                              </td>
-                              <td style={{ padding: '11px 10px', fontWeight: '600', color: '#0f172a' }}>
-                                {item.oge || '-'}
-                              </td>
-                              <td style={{ padding: '11px 10px', color: '#475569' }}>
-                                {item.kategori || '-'}
-                              </td>
-                              <td style={{ padding: '11px 10px', color: '#64748b' }}>
-                                {item.islemTipi === 'Gider' ? (item.odeme_kaynagi || '-') : '-'}
-                              </td>
-                              <td
-                                style={{
-                                  padding: '11px 10px',
-                                  textAlign: 'right',
-                                  fontWeight: '800',
-                                  color: item.islemTipi === 'Gelir' ? '#059669' : '#dc2626',
-                                  whiteSpace: 'nowrap'
-                                }}
-                              >
-                                {item.islemTipi === 'Gelir' ? '+' : '-'}₺{Number(item.tutar || 0).toLocaleString('tr-TR')}
-                              </td>
-                            </tr>
+                      <div style={{ background: 'white', padding: '25px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                        <h3 style={{ marginTop: 0, color: '#0f172a' }}>{duzenlenenKayitId ? '✏️ Alacak / Borç Düzenle' : '➕ Yeni Alacak / Borç Ekle'}</h3>
+                        <form onSubmit={finansKaydet} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                          {[['TÜR','tur'],['TARAF / FİRMA / KİŞİ','taraf'],['TARİH','tarih'],['VADE TARİHİ','vade_tarihi'],['KATEGORİ','kategori'],['AÇIKLAMA','aciklama'],['TUTAR (₺)','tutar']].map(([etiket, alan]) => (
+                            <div key={alan} style={{ flex: alan === 'aciklama' ? 1.8 : 1, minWidth: alan === 'taraf' || alan === 'aciklama' ? '180px' : '130px' }}>
+                              <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>{etiket}</label>
+                              {alan === 'tur' ? (
+                                <select value={finansForm.tur} onChange={(e) => setFinansForm({ ...finansForm, tur: e.target.value })} style={{ width:'100%', padding:'10px', border:'1px solid #cbd5e1', borderRadius:'8px', background:'#fff' }}>
+                                  <option>Alacak</option><option>Borç</option>
+                                </select>
+                              ) : alan === 'tarih' || alan === 'vade_tarihi' ? (
+                                <input type="date" value={finansForm[alan]} onChange={(e) => setFinansForm({ ...finansForm, [alan]: e.target.value })} style={{ width:'100%', boxSizing:'border-box', padding:'10px', border:'1px solid #cbd5e1', borderRadius:'8px' }} />
+                              ) : (
+                                <input required={['taraf','kategori','tutar'].includes(alan)} type={alan === 'tutar' ? 'number' : 'text'} step={alan === 'tutar' ? '0.01' : undefined} placeholder={alan === 'taraf' ? 'Örn: ABC Yapı' : alan === 'kategori' ? 'Örn: Taşeron' : alan === 'aciklama' ? 'Detay girin...' : ''} value={finansForm[alan]} onChange={(e) => setFinansForm({ ...finansForm, [alan]: e.target.value })} style={{ width:'100%', boxSizing:'border-box', padding:'10px', border:'1px solid #cbd5e1', borderRadius:'8px' }} />
+                              )}
+                            </div>
                           ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
+                          <div style={{ flex: 1, minWidth:'130px' }}>
+                            <label style={{ display:'block', fontSize:'11px', fontWeight:'bold', color:'#64748b', marginBottom:'6px' }}>DURUM</label>
+                            <select value={finansForm.durum} onChange={(e) => setFinansForm({ ...finansForm, durum:e.target.value })} style={{ width:'100%', padding:'10px', border:'1px solid #cbd5e1', borderRadius:'8px', background:'#fff' }}><option>Bekliyor</option><option>Kısmen Ödendi</option><option>Ödendi</option><option>İptal</option></select>
+                          </div>
+                          <div style={{ width:'100%', display:'flex', gap:'8px' }}>
+                            <button type="submit" style={{ flex:1, padding:'12px', background:duzenlenenKayitId ? '#f59e0b' : '#7c3aed', color:'#fff', border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'bold' }}>{duzenlenenKayitId ? '✓ Güncelle' : 'Sisteme Kaydet'}</button>
+                            {duzenlenenKayitId && <button type="button" onClick={() => { setDuzenlenenKayitId(null); setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() }); }} style={{ padding:'12px 20px', border:'1px solid #cbd5e1', borderRadius:'8px', background:'#f1f5f9', cursor:'pointer' }}>İptal</button>}
+                          </div>
+                        </form>
+                      </div>
 
+                      <div style={{ background:'white', padding:'25px', borderRadius:'16px', border:'1px solid #e2e8f0' }}>
+                        <h3 style={{ marginTop:0 }}>Kayıtlar</h3>
+                        <div style={{ overflowX:'auto' }}>
+                          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'14px' }}>
+                            <thead><tr style={{ background:'#f8fafc', color:'#475569' }}>{['Tür','Taraf / Firma / Kişi','Tarih','Vade','Kategori','Açıklama','Durum','Tutar','İşlem'].map(h => <th key={h} style={{ padding:'12px', textAlign:h==='Tutar'?'right':'left' }}>{h}</th>)}</tr></thead>
+                            <tbody>{alacakBorclar.map(i => <tr key={i.id} style={{ borderBottom:'1px solid #f1f5f9' }}>
+                              <td style={{ padding:'12px' }}><span style={{ padding:'4px 9px', borderRadius:'6px', background:i.tur==='Alacak'?'#dcfce7':'#fee2e2', color:i.tur==='Alacak'?'#166534':'#991b1b', fontWeight:'700', fontSize:'12px' }}>{i.tur}</span></td>
+                              <td style={{ padding:'12px', fontWeight:'600' }}>{i.taraf}</td><td style={{ padding:'12px' }}>{i.tarih || '-'}</td><td style={{ padding:'12px' }}>{i.vade_tarihi || '-'}</td><td style={{ padding:'12px' }}>{i.kategori || '-'}</td><td style={{ padding:'12px', color:'#64748b' }}>{i.aciklama || '-'}</td><td style={{ padding:'12px' }}>{i.durum || 'Bekliyor'}</td><td style={{ padding:'12px', textAlign:'right', fontWeight:'800' }}>₺{Number(i.tutar||0).toLocaleString('tr-TR')}</td>
+                              <td style={{ padding:'12px' }}><button onClick={() => finansDuzenle(i)} style={{ marginRight:'5px', padding:'6px 9px', border:0, borderRadius:'6px', background:'#fef3c7', color:'#92400e', cursor:'pointer' }}>Düzenle</button><button onClick={() => finansSil(i.id)} style={{ padding:'6px 9px', border:0, borderRadius:'6px', background:'#fee2e2', color:'#991b1b', cursor:'pointer' }}>Sil</button></td>
+                            </tr>)}{alacakBorclar.length===0 && <tr><td colSpan="9" style={{ padding:'35px', textAlign:'center', color:'#94a3b8' }}>Henüz alacak veya borç kaydı yok.</td></tr>}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               /* GELİR / GİDER */
