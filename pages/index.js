@@ -16,7 +16,25 @@ export default function Dashboard() {
   const [harcamalar, setHarcamalar] = useState([]);
   const [gelirler, setGelirler] = useState([]);
   const [alacakBorclar, setAlacakBorclar] = useState([]);
+  const [cariler, setCariler] = useState([]);
   const [aktifSekme, setAktifSekme] = useState('ozet');
+
+  const cariFormBaslangic = {
+    ad: '',
+    tip: 'Firma',
+    yetkili: '',
+    telefon: '',
+    email: '',
+    vergi_dairesi: '',
+    vergi_no: '',
+    adres: '',
+    notlar: '',
+    aktif: true
+  };
+  const [cariForm, setCariForm] = useState(cariFormBaslangic);
+  const [cariDuzenlenenId, setCariDuzenlenenId] = useState(null);
+  const [cariArama, setCariArama] = useState('');
+  const [cariAktifFiltre, setCariAktifFiltre] = useState('aktif');
 
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
@@ -142,6 +160,12 @@ export default function Dashboard() {
       .eq('proje_id', seciliProje.id)
       .order('vade_tarihi', { ascending: true, nullsFirst: false });
 
+    const { data: c, error: cError } = await supabase
+      .from('cariler')
+      .select('*')
+      .eq('proje_id', seciliProje.id)
+      .order('ad', { ascending: true });
+
     if (hError) {
       console.error('Harcamalar alınamadı:', hError);
     }
@@ -152,10 +176,14 @@ export default function Dashboard() {
     if (fError) {
       console.error('Alacak/borç kayıtları alınamadı:', fError);
     }
+    if (cError) {
+      console.error('Cariler alınamadı:', cError);
+    }
 
     setHarcamalar(h || []);
     setGelirler(g || []);
     setAlacakBorclar(f || []);
+    setCariler(c || []);
   }
 
   // YENİ PROJE EKLE
@@ -309,6 +337,112 @@ export default function Dashboard() {
     await verileriGetir();
   }
 
+
+  // CARİ KAYDET / GÜNCELLE
+  async function cariKaydet(event) {
+    event.preventDefault();
+
+    if (!seciliProje) {
+      setHata('Önce bir proje seçmelisiniz.');
+      return;
+    }
+
+    if (!cariForm.ad.trim()) {
+      setHata('Firma / kişi adı zorunludur.');
+      return;
+    }
+
+    setHata('');
+    setMesaj('');
+
+    const kayit = {
+      ad: cariForm.ad.trim(),
+      tip: cariForm.tip,
+      yetkili: cariForm.yetkili.trim(),
+      telefon: cariForm.telefon.trim(),
+      email: cariForm.email.trim(),
+      vergi_dairesi: cariForm.vergi_dairesi.trim(),
+      vergi_no: cariForm.vergi_no.trim(),
+      adres: cariForm.adres.trim(),
+      notlar: cariForm.notlar.trim(),
+      aktif: cariForm.aktif,
+      proje_id: seciliProje.id
+    };
+
+    let error = null;
+
+    if (cariDuzenlenenId) {
+      const sonuc = await supabase
+        .from('cariler')
+        .update(kayit)
+        .eq('id', cariDuzenlenenId)
+        .eq('proje_id', seciliProje.id);
+      error = sonuc.error;
+    } else {
+      const sonuc = await supabase
+        .from('cariler')
+        .insert([kayit]);
+      error = sonuc.error;
+    }
+
+    if (error) {
+      console.error('Cari kaydetme hatası:', error);
+      setHata('Cari kaydedilemedi: ' + error.message);
+      return;
+    }
+
+    setCariForm({ ...cariFormBaslangic });
+    setCariDuzenlenenId(null);
+    setMesaj(cariDuzenlenenId ? 'Cari başarıyla güncellendi.' : 'Cari başarıyla eklendi.');
+    await verileriGetir();
+  }
+
+  function cariDuzenle(cari) {
+    setCariForm({
+      ad: cari.ad || '',
+      tip: cari.tip || 'Firma',
+      yetkili: cari.yetkili || '',
+      telefon: cari.telefon || '',
+      email: cari.email || '',
+      vergi_dairesi: cari.vergi_dairesi || '',
+      vergi_no: cari.vergi_no || '',
+      adres: cari.adres || '',
+      notlar: cari.notlar || '',
+      aktif: cari.aktif !== false
+    });
+    setCariDuzenlenenId(cari.id);
+    setMesaj('Cari düzenleme modunda.');
+    setHata('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function cariDuzenlemeyiIptalEt() {
+    setCariDuzenlenenId(null);
+    setCariForm({ ...cariFormBaslangic });
+    setMesaj('');
+    setHata('');
+  }
+
+  async function cariSil(id) {
+    if (!window.confirm('Bu cari kaydını silmek istediğinize emin misiniz?')) return;
+
+    const { error } = await supabase
+      .from('cariler')
+      .delete()
+      .eq('id', id)
+      .eq('proje_id', seciliProje.id);
+
+    if (error) {
+      setHata('Cari silinemedi: ' + error.message);
+      return;
+    }
+
+    if (cariDuzenlenenId === id) cariDuzenlemeyiIptalEt();
+    setMesaj('Cari silindi.');
+    setHata('');
+    await verileriGetir();
+  }
+
   // GELİR / GİDER KAYDET / GÜNCELLE
   async function kaydet(event) {
     event.preventDefault();
@@ -433,7 +567,7 @@ export default function Dashboard() {
   }
 
   const aktifListe =
-    aktifSekme === 'gelirler' ? gelirler : aktifSekme === 'giderler' ? harcamalar : alacakBorclar;
+    aktifSekme === 'gelirler' ? gelirler : aktifSekme === 'giderler' ? harcamalar : aktifSekme === 'finans' ? alacakBorclar : [];
 
   const gorunenListe = aktifListe.filter((item) => {
     const kategoriUygun =
@@ -463,6 +597,24 @@ export default function Dashboard() {
     (t, i) => t + Number(i.tutar),
     0
   );
+
+  const gorunenCariler = cariler.filter((cari) => {
+    const arama = cariArama.trim().toLowerCase();
+    const aramaUygun =
+      !arama ||
+      [cari.ad, cari.yetkili, cari.telefon, cari.email, cari.vergi_no, cari.notlar]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(arama);
+
+    const aktifUygun =
+      cariAktifFiltre === 'tumu' ||
+      (cariAktifFiltre === 'aktif' && cari.aktif !== false) ||
+      (cariAktifFiltre === 'pasif' && cari.aktif === false);
+
+    return aramaUygun && aktifUygun;
+  });
 
   const toplamGelir = gelirler.reduce(
     (t, i) => t + Number(i.tutar),
@@ -1171,6 +1323,11 @@ export default function Dashboard() {
                   id: 'finans',
                   label: '💳 Alacak / Borç',
                   color: '#7c3aed'
+                },
+                {
+                  id: 'cariler',
+                  label: '👥 Cari Hesaplar',
+                  color: '#0891b2'
                 }
               ].map((s) => (
                 <button
@@ -1182,7 +1339,10 @@ export default function Dashboard() {
                     setFiltreBaslangic('');
                     setFiltreBitis('');
                     setDuzenlenenKayitId(null);
+                    setCariDuzenlenenId(null);
+                    setCariForm({ ...cariFormBaslangic });
                     setForm({ ...formBaslangic, tarih: bugununTarihi() });
+                    setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() });
                     setMesaj('');
                     setHata('');
                   }}
@@ -1533,6 +1693,197 @@ export default function Dashboard() {
                   )}
                 </div>
 
+              </div>
+            ) : aktifSekme === 'finans' ? (
+              /* ALACAK / BORÇ */
+              <div
+                style={{
+                  background: 'white',
+                  padding: '30px',
+                  borderRadius: '16px',
+                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+                  border: '1px solid #e2e8f0'
+                }}
+              >
+                <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#0f172a', fontSize: '18px', fontWeight: '700' }}>
+                  {duzenlenenKayitId ? '✏️ Alacak / Borç Düzenle' : '💳 Yeni Alacak / Borç Kaydı'}
+                </h3>
+                <form onSubmit={finansKaydet} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '28px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  {[
+                    ['TÜR', 'tur', ['Alacak', 'Borç']],
+                    ['DURUM', 'durum', ['Bekliyor', 'Kısmen Ödendi', 'Ödendi', 'İptal']]
+                  ].map(([label, key, options]) => (
+                    <div key={key} style={{ flex: 1, minWidth: '150px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>{label}</label>
+                      <select value={finansForm[key]} onChange={(e) => setFinansForm({ ...finansForm, [key]: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff' }}>
+                        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                  <div style={{ flex: 1.5, minWidth: '180px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>TARAF / FİRMA / KİŞİ</label>
+                    <input required value={finansForm.taraf} onChange={(e) => setFinansForm({ ...finansForm, taraf: e.target.value })} placeholder="Örn: ABC Beton" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: '140px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>TARİH</label>
+                    <input required type="date" value={finansForm.tarih} onChange={(e) => setFinansForm({ ...finansForm, tarih: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: '140px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>VADE TARİHİ</label>
+                    <input type="date" value={finansForm.vade_tarihi} onChange={(e) => setFinansForm({ ...finansForm, vade_tarihi: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                  </div>
+                  <div style={{ flex: 1.2, minWidth: '150px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>KATEGORİ</label>
+                    <input required value={finansForm.kategori} onChange={(e) => setFinansForm({ ...finansForm, kategori: e.target.value })} placeholder="Örn: Hakediş, Malzeme" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: '140px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>TUTAR (₺)</label>
+                    <input required type="number" step="0.01" min="0" value={finansForm.tutar} onChange={(e) => setFinansForm({ ...finansForm, tutar: e.target.value })} placeholder="0.00" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700' }} />
+                  </div>
+                  <div style={{ flex: 2, minWidth: '220px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>AÇIKLAMA</label>
+                    <input value={finansForm.aciklama} onChange={(e) => setFinansForm({ ...finansForm, aciklama: e.target.value })} placeholder="Detay..." style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', width: '100%' }}>
+                    <button type="submit" style={{ flex: 1, padding: '12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>
+                      {duzenlenenKayitId ? '✓ Güncelle' : 'Sisteme Kaydet'}
+                    </button>
+                    {duzenlenenKayitId && <button type="button" onClick={() => { setDuzenlenenKayitId(null); setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() }); }} style={{ padding: '12px 20px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700' }}>İptal</button>}
+                  </div>
+                </form>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+                    <thead><tr style={{ background: '#f8fafc', color: '#475569', textAlign: 'left' }}>
+                      {['Tür','Taraf','Tarih','Vade','Kategori','Açıklama','Tutar','Durum','İşlem'].map((h) => <th key={h} style={{ padding: '12px' }}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {alacakBorclar.map((i) => (
+                        <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px' }}><span style={{ color: i.tur === 'Alacak' ? '#059669' : '#dc2626', fontWeight: '800' }}>{i.tur}</span></td>
+                          <td style={{ padding: '12px', fontWeight: '700' }}>{i.taraf}</td>
+                          <td style={{ padding: '12px' }}>{i.tarih || '-'}</td>
+                          <td style={{ padding: '12px' }}>{i.vade_tarihi || '-'}</td>
+                          <td style={{ padding: '12px' }}>{i.kategori || '-'}</td>
+                          <td style={{ padding: '12px', color: '#64748b' }}>{i.aciklama || '-'}</td>
+                          <td style={{ padding: '12px', fontWeight: '800' }}>₺{Number(i.tutar || 0).toLocaleString('tr-TR')}</td>
+                          <td style={{ padding: '12px' }}>{i.durum}</td>
+                          <td style={{ padding: '12px' }}>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button type="button" onClick={() => finansDuzenle(i)} style={{ padding: '6px 9px', background: '#fef3c7', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Düzenle</button>
+                              <button type="button" onClick={() => finansSil(i.id)} style={{ padding: '6px 9px', background: '#fee2e2', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Sil</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {alacakBorclar.length === 0 && <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Henüz alacak/borç kaydı yok.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : aktifSekme === 'cariler' ? (
+              /* CARİLER */
+              <div
+                style={{
+                  background: 'white',
+                  padding: '30px',
+                  borderRadius: '16px',
+                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+                  border: '1px solid #e2e8f0'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '15px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, color: '#0f172a', fontSize: '20px' }}>{cariDuzenlenenId ? '✏️ Cari Düzenle' : '👥 Cari Hesaplar'}</h3>
+                    <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Firma ve kişi kayıtlarını proje bazında yönetin.</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ padding: '9px 12px', borderRadius: '8px', background: '#ecfeff', color: '#0e7490', fontWeight: '800' }}>{cariler.length} Cari</span>
+                    <span style={{ padding: '9px 12px', borderRadius: '8px', background: '#f0fdf4', color: '#166534', fontWeight: '800' }}>{cariler.filter(c => c.aktif !== false).length} Aktif</span>
+                  </div>
+                </div>
+
+                <form onSubmit={cariKaydet} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '25px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  {[
+                    ['tip', 'TÜR', ['Firma', 'Kişi']]
+                  ].map(([key, label, options]) => (
+                    <div key={key} style={{ flex: 1, minWidth: '140px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>{label}</label>
+                      <select value={cariForm[key]} onChange={(e) => setCariForm({ ...cariForm, [key]: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff' }}>
+                        {options.map(o => <option key={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                  {[
+                    ['ad','FİRMA / KİŞİ ADI','Örn: ABC Beton A.Ş.'],
+                    ['yetkili','YETKİLİ','Örn: Ahmet Yılmaz'],
+                    ['telefon','TELEFON','05xx xxx xx xx'],
+                    ['email','E-POSTA','ornek@firma.com'],
+                    ['vergi_dairesi','VERGİ DAİRESİ',''],
+                    ['vergi_no','VERGİ NO / T.C.','']
+                  ].map(([key,label,placeholder]) => (
+                    <div key={key} style={{ flex: key === 'ad' ? 1.5 : 1, minWidth: '160px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>{label}</label>
+                      <input required={key === 'ad'} value={cariForm[key]} onChange={(e) => setCariForm({ ...cariForm, [key]: e.target.value })} placeholder={placeholder} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff' }} />
+                    </div>
+                  ))}
+                  <div style={{ flex: 2, minWidth: '220px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>ADRES</label>
+                    <input value={cariForm.adres} onChange={(e) => setCariForm({ ...cariForm, adres: e.target.value })} placeholder="Adres..." style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                  </div>
+                  <div style={{ flex: 2, minWidth: '220px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>NOTLAR</label>
+                    <input value={cariForm.notlar} onChange={(e) => setCariForm({ ...cariForm, notlar: e.target.value })} placeholder="Not..." style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 5px', fontWeight: '700', color: '#334155' }}>
+                    <input type="checkbox" checked={cariForm.aktif} onChange={(e) => setCariForm({ ...cariForm, aktif: e.target.checked })} />
+                    Aktif
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                    <button type="submit" style={{ flex: 1, padding: '12px', background: cariDuzenlenenId ? '#f59e0b' : '#0891b2', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>
+                      {cariDuzenlenenId ? '✓ Cariyi Güncelle' : '➕ Cari Ekle'}
+                    </button>
+                    {cariDuzenlenenId && <button type="button" onClick={cariDuzenlemeyiIptalEt} style={{ padding: '12px 20px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700' }}>İptal</button>}
+                  </div>
+                </form>
+
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '18px', padding: '14px', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: '10px' }}>
+                  <input value={cariArama} onChange={(e) => setCariArama(e.target.value)} placeholder="🔎 Firma, kişi, yetkili, telefon veya vergi no ara..." style={{ flex: 1, minWidth: '220px', padding: '10px 12px', border: '1px solid #67e8f9', borderRadius: '8px', background: '#fff' }} />
+                  <select value={cariAktifFiltre} onChange={(e) => setCariAktifFiltre(e.target.value)} style={{ padding: '10px 12px', border: '1px solid #67e8f9', borderRadius: '8px', background: '#fff' }}>
+                    <option value="aktif">Aktifler</option>
+                    <option value="pasif">Pasifler</option>
+                    <option value="tumu">Tümü</option>
+                  </select>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1050px' }}>
+                    <thead><tr style={{ background: '#f8fafc', color: '#475569', textAlign: 'left' }}>
+                      {['Tür','Firma / Kişi','Yetkili','Telefon','E-posta','Vergi No','Notlar','Durum','İşlem'].map(h => <th key={h} style={{ padding: '12px' }}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {gorunenCariler.map((cari) => (
+                        <tr key={cari.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px' }}>{cari.tip === 'Kişi' ? '👤 Kişi' : '🏢 Firma'}</td>
+                          <td style={{ padding: '12px', fontWeight: '800', color: '#0f172a' }}>{cari.ad}</td>
+                          <td style={{ padding: '12px' }}>{cari.yetkili || '-'}</td>
+                          <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>{cari.telefon || '-'}</td>
+                          <td style={{ padding: '12px' }}>{cari.email || '-'}</td>
+                          <td style={{ padding: '12px' }}>{cari.vergi_no || '-'}</td>
+                          <td style={{ padding: '12px', color: '#64748b' }}>{cari.notlar || '-'}</td>
+                          <td style={{ padding: '12px' }}><span style={{ padding: '4px 8px', borderRadius: '6px', background: cari.aktif !== false ? '#dcfce7' : '#f1f5f9', color: cari.aktif !== false ? '#166534' : '#64748b', fontWeight: '700', fontSize: '12px' }}>{cari.aktif !== false ? 'Aktif' : 'Pasif'}</span></td>
+                          <td style={{ padding: '12px' }}>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              <button type="button" onClick={() => cariDuzenle(cari)} style={{ padding: '6px 10px', background: '#fef3c7', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Düzenle</button>
+                              <button type="button" onClick={() => cariSil(cari.id)} style={{ padding: '6px 10px', background: '#fee2e2', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Sil</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {gorunenCariler.length === 0 && <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Cari kaydı bulunamadı.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               /* GELİR / GİDER */
