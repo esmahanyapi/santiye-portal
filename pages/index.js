@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [gelirler, setGelirler] = useState([]);
   const [alacakBorclar, setAlacakBorclar] = useState([]);
   const [cariler, setCariler] = useState([]);
+  const [hakedisler, setHakedisler] = useState([]);
   const [aktifSekme, setAktifSekme] = useState('ozet');
 
   const cariFormBaslangic = {
@@ -35,6 +36,21 @@ export default function Dashboard() {
   const [cariDuzenlenenId, setCariDuzenlenenId] = useState(null);
   const [cariArama, setCariArama] = useState('');
   const [cariAktifFiltre, setCariAktifFiltre] = useState('aktif');
+
+  const hakedisFormBaslangic = {
+    cari_id: '',
+    hakedis_no: '',
+    tarih: bugununTarihi(),
+    vade_tarihi: '',
+    aciklama: '',
+    brut_tutar: '',
+    kesinti: '',
+    odenen_tutar: '',
+    durum: 'Bekliyor',
+    notlar: ''
+  };
+  const [hakedisForm, setHakedisForm] = useState(hakedisFormBaslangic);
+  const [hakedisDuzenlenenId, setHakedisDuzenlenenId] = useState(null);
 
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
@@ -166,6 +182,12 @@ export default function Dashboard() {
       .eq('proje_id', seciliProje.id)
       .order('ad', { ascending: true });
 
+    const { data: hd, error: hdError } = await supabase
+      .from('hakedisler')
+      .select('*, cariler(id, ad, tip)')
+      .eq('proje_id', seciliProje.id)
+      .order('tarih', { ascending: false });
+
     if (hError) {
       console.error('Harcamalar alınamadı:', hError);
     }
@@ -179,11 +201,15 @@ export default function Dashboard() {
     if (cError) {
       console.error('Cariler alınamadı:', cError);
     }
+    if (hdError) {
+      console.error('Hakedişler alınamadı:', hdError);
+    }
 
     setHarcamalar(h || []);
     setGelirler(g || []);
     setAlacakBorclar(f || []);
     setCariler(c || []);
+    setHakedisler(hd || []);
   }
 
   // YENİ PROJE EKLE
@@ -439,6 +465,129 @@ export default function Dashboard() {
 
     if (cariDuzenlenenId === id) cariDuzenlemeyiIptalEt();
     setMesaj('Cari silindi.');
+    setHata('');
+    await verileriGetir();
+  }
+
+  // HAKEDİŞ KAYDET / GÜNCELLE
+  async function hakedisKaydet(event) {
+    event.preventDefault();
+
+    if (!seciliProje) {
+      setHata('Önce bir proje seçmelisiniz.');
+      return;
+    }
+    if (!hakedisForm.cari_id) {
+      setHata('Lütfen bir cari/firma seçin.');
+      return;
+    }
+    if (!hakedisForm.hakedis_no.trim() || !hakedisForm.tarih) {
+      setHata('Hakediş No ve tarih zorunludur.');
+      return;
+    }
+
+    const brut = Number(hakedisForm.brut_tutar || 0);
+    const kesinti = Number(hakedisForm.kesinti || 0);
+    const odenen = Number(hakedisForm.odenen_tutar || 0);
+    const net = brut - kesinti;
+
+    if (!Number.isFinite(brut) || brut < 0 || !Number.isFinite(kesinti) || kesinti < 0 || !Number.isFinite(odenen) || odenen < 0) {
+      setHata('Tutar alanlarını kontrol edin.');
+      return;
+    }
+    if (kesinti > brut) {
+      setHata('Kesinti, brüt hakedişten büyük olamaz.');
+      return;
+    }
+    if (odenen > net) {
+      setHata('Ödenen tutar net hakedişten büyük olamaz.');
+      return;
+    }
+
+    setHata('');
+    setMesaj('');
+
+    const kayit = {
+      proje_id: seciliProje.id,
+      cari_id: Number(hakedisForm.cari_id),
+      hakedis_no: hakedisForm.hakedis_no.trim(),
+      tarih: hakedisForm.tarih,
+      vade_tarihi: hakedisForm.vade_tarihi || null,
+      aciklama: hakedisForm.aciklama.trim(),
+      brut_tutar: brut,
+      kesinti,
+      odenen_tutar: odenen,
+      durum: hakedisForm.durum,
+      notlar: hakedisForm.notlar.trim()
+    };
+
+    let error = null;
+    if (hakedisDuzenlenenId) {
+      const sonuc = await supabase
+        .from('hakedisler')
+        .update(kayit)
+        .eq('id', hakedisDuzenlenenId)
+        .eq('proje_id', seciliProje.id);
+      error = sonuc.error;
+    } else {
+      const sonuc = await supabase.from('hakedisler').insert([kayit]);
+      error = sonuc.error;
+    }
+
+    if (error) {
+      console.error('Hakediş kaydetme hatası:', error);
+      setHata('Hakediş kaydedilemedi: ' + error.message);
+      return;
+    }
+
+    setHakedisForm({ ...hakedisFormBaslangic, tarih: bugununTarihi() });
+    setHakedisDuzenlenenId(null);
+    setMesaj(hakedisDuzenlenenId ? 'Hakediş başarıyla güncellendi.' : 'Hakediş başarıyla eklendi.');
+    await verileriGetir();
+  }
+
+  function hakedisDuzenle(kayit) {
+    setHakedisForm({
+      cari_id: kayit.cari_id || '',
+      hakedis_no: kayit.hakedis_no || '',
+      tarih: kayit.tarih || bugununTarihi(),
+      vade_tarihi: kayit.vade_tarihi || '',
+      aciklama: kayit.aciklama || '',
+      brut_tutar: kayit.brut_tutar ?? '',
+      kesinti: kayit.kesinti ?? '',
+      odenen_tutar: kayit.odenen_tutar ?? '',
+      durum: kayit.durum || 'Bekliyor',
+      notlar: kayit.notlar || ''
+    });
+    setHakedisDuzenlenenId(kayit.id);
+    setMesaj('Hakediş düzenleme modunda.');
+    setHata('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function hakedisDuzenlemeyiIptalEt() {
+    setHakedisDuzenlenenId(null);
+    setHakedisForm({ ...hakedisFormBaslangic, tarih: bugununTarihi() });
+    setMesaj('');
+    setHata('');
+  }
+
+  async function hakedisSil(id) {
+    if (!window.confirm('Bu hakediş kaydını silmek istediğinize emin misiniz?')) return;
+
+    const { error } = await supabase
+      .from('hakedisler')
+      .delete()
+      .eq('id', id)
+      .eq('proje_id', seciliProje.id);
+
+    if (error) {
+      setHata('Hakediş silinemedi: ' + error.message);
+      return;
+    }
+
+    if (hakedisDuzenlenenId === id) hakedisDuzenlemeyiIptalEt();
+    setMesaj('Hakediş silindi.');
     setHata('');
     await verileriGetir();
   }
@@ -1328,6 +1477,11 @@ export default function Dashboard() {
                   id: 'cariler',
                   label: '👥 Cari Hesaplar',
                   color: '#0891b2'
+                },
+                {
+                  id: 'hakedisler',
+                  label: '🧾 Hakedişler',
+                  color: '#d97706'
                 }
               ].map((s) => (
                 <button
@@ -1341,6 +1495,8 @@ export default function Dashboard() {
                     setDuzenlenenKayitId(null);
                     setCariDuzenlenenId(null);
                     setCariForm({ ...cariFormBaslangic });
+                    setHakedisDuzenlenenId(null);
+                    setHakedisForm({ ...hakedisFormBaslangic, tarih: bugununTarihi() });
                     setForm({ ...formBaslangic, tarih: bugununTarihi() });
                     setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() });
                     setMesaj('');
@@ -1881,6 +2037,135 @@ export default function Dashboard() {
                         </tr>
                       ))}
                       {gorunenCariler.length === 0 && <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Cari kaydı bulunamadı.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : aktifSekme === 'hakedisler' ? (
+              /* HAKEDİŞLER */
+              <div
+                style={{
+                  background: 'white',
+                  padding: '30px',
+                  borderRadius: '16px',
+                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+                  border: '1px solid #e2e8f0'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '15px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, color: '#0f172a', fontSize: '20px' }}>{hakedisDuzenlenenId ? '✏️ Hakediş Düzenle' : '🧾 Hakediş Yönetimi'}</h3>
+                    <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Taşeron ve firmaların hakedişlerini proje bazında takip edin.</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ padding: '9px 12px', borderRadius: '8px', background: '#fff7ed', color: '#c2410c', fontWeight: '800' }}>{hakedisler.length} Hakediş</span>
+                    <span style={{ padding: '9px 12px', borderRadius: '8px', background: '#f0fdf4', color: '#166534', fontWeight: '800' }}>
+                      Net: ₺{hakedisler.reduce((t, i) => t + Number(i.net_tutar || 0), 0).toLocaleString('tr-TR')}
+                    </span>
+                    <span style={{ padding: '9px 12px', borderRadius: '8px', background: '#eff6ff', color: '#1d4ed8', fontWeight: '800' }}>
+                      Kalan: ₺{hakedisler.reduce((t, i) => t + Math.max(Number(i.net_tutar || 0) - Number(i.odenen_tutar || 0), 0), 0).toLocaleString('tr-TR')}
+                    </span>
+                  </div>
+                </div>
+
+                {cariler.length === 0 ? (
+                  <div style={{ padding: '18px', marginBottom: '20px', background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', borderRadius: '10px', fontWeight: '600' }}>
+                    Hakediş eklemek için önce Cari Hesaplar bölümünden en az bir firma veya kişi oluşturun.
+                  </div>
+                ) : (
+                  <form onSubmit={hakedisKaydet} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '25px', background: '#fffaf5', padding: '20px', borderRadius: '12px', border: '1px solid #fed7aa' }}>
+                    <div style={{ flex: 1.5, minWidth: '220px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>CARİ / FİRMA *</label>
+                      <select required value={hakedisForm.cari_id} onChange={(e) => setHakedisForm({ ...hakedisForm, cari_id: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff' }}>
+                        <option value="">Cari seçin...</option>
+                        {cariler.filter(c => c.aktif !== false).map(c => <option key={c.id} value={c.id}>{c.tip === 'Kişi' ? '👤' : '🏢'} {c.ad}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1, minWidth: '140px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>HAKEDİŞ NO *</label>
+                      <input required value={hakedisForm.hakedis_no} onChange={(e) => setHakedisForm({ ...hakedisForm, hakedis_no: e.target.value })} placeholder="Örn: H-001" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '140px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>TARİH *</label>
+                      <input required type="date" value={hakedisForm.tarih} onChange={(e) => setHakedisForm({ ...hakedisForm, tarih: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '140px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>VADE TARİHİ</label>
+                      <input type="date" value={hakedisForm.vade_tarihi} onChange={(e) => setHakedisForm({ ...hakedisForm, vade_tarihi: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '150px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>BRÜT TUTAR (₺)</label>
+                      <input required type="number" min="0" step="0.01" value={hakedisForm.brut_tutar} onChange={(e) => setHakedisForm({ ...hakedisForm, brut_tutar: e.target.value })} placeholder="0.00" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '150px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>KESİNTİ (₺)</label>
+                      <input type="number" min="0" step="0.01" value={hakedisForm.kesinti} onChange={(e) => setHakedisForm({ ...hakedisForm, kesinti: e.target.value })} placeholder="0.00" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '150px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>NET HAKEDİŞ</label>
+                      <div style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', fontWeight: '800' }}>
+                        ₺{Math.max(Number(hakedisForm.brut_tutar || 0) - Number(hakedisForm.kesinti || 0), 0).toLocaleString('tr-TR')}
+                      </div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: '150px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>ÖDENEN (₺)</label>
+                      <input type="number" min="0" step="0.01" value={hakedisForm.odenen_tutar} onChange={(e) => setHakedisForm({ ...hakedisForm, odenen_tutar: e.target.value })} placeholder="0.00" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '150px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>DURUM</label>
+                      <select value={hakedisForm.durum} onChange={(e) => setHakedisForm({ ...hakedisForm, durum: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff' }}>
+                        <option>Bekliyor</option><option>Kısmen Ödendi</option><option>Ödendi</option><option>İptal</option>
+                      </select>
+                    </div>
+                    <div style={{ flex: 2, minWidth: '240px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>AÇIKLAMA</label>
+                      <input value={hakedisForm.aciklama} onChange={(e) => setHakedisForm({ ...hakedisForm, aciklama: e.target.value })} placeholder="İşin / hakedişin açıklaması" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ flex: 2, minWidth: '240px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px' }}>NOTLAR</label>
+                      <input value={hakedisForm.notlar} onChange={(e) => setHakedisForm({ ...hakedisForm, notlar: e.target.value })} placeholder="Ek not..." style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                      <button type="submit" style={{ flex: 1, padding: '12px', background: hakedisDuzenlenenId ? '#f59e0b' : '#d97706', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>
+                        {hakedisDuzenlenenId ? '✓ Hakedişi Güncelle' : '➕ Hakediş Kaydet'}
+                      </button>
+                      {hakedisDuzenlenenId && <button type="button" onClick={hakedisDuzenlemeyiIptalEt} style={{ padding: '12px 20px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700' }}>İptal</button>}
+                    </div>
+                  </form>
+                )}
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1250px' }}>
+                    <thead><tr style={{ background: '#fff7ed', color: '#7c2d12', textAlign: 'left' }}>
+                      {['Hakediş No','Cari / Firma','Tarih','Vade','Açıklama','Brüt','Kesinti','Net','Ödenen','Kalan','Durum','İşlem'].map(h => <th key={h} style={{ padding: '12px' }}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {hakedisler.map((i) => {
+                        const net = Number(i.net_tutar || 0);
+                        const kalan = Math.max(net - Number(i.odenen_tutar || 0), 0);
+                        return (
+                          <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '12px', fontWeight: '800' }}>{i.hakedis_no}</td>
+                            <td style={{ padding: '12px', fontWeight: '700' }}>{i.cariler?.ad || cariler.find(c => c.id === i.cari_id)?.ad || '-'}</td>
+                            <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>{i.tarih || '-'}</td>
+                            <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>{i.vade_tarihi || '-'}</td>
+                            <td style={{ padding: '12px', color: '#64748b' }}>{i.aciklama || '-'}</td>
+                            <td style={{ padding: '12px', fontWeight: '700' }}>₺{Number(i.brut_tutar || 0).toLocaleString('tr-TR')}</td>
+                            <td style={{ padding: '12px' }}>₺{Number(i.kesinti || 0).toLocaleString('tr-TR')}</td>
+                            <td style={{ padding: '12px', fontWeight: '800', color: '#166534' }}>₺{net.toLocaleString('tr-TR')}</td>
+                            <td style={{ padding: '12px', color: '#1d4ed8', fontWeight: '700' }}>₺{Number(i.odenen_tutar || 0).toLocaleString('tr-TR')}</td>
+                            <td style={{ padding: '12px', color: kalan > 0 ? '#dc2626' : '#166534', fontWeight: '800' }}>₺{kalan.toLocaleString('tr-TR')}</td>
+                            <td style={{ padding: '12px' }}><span style={{ padding: '4px 8px', borderRadius: '6px', background: i.durum === 'Ödendi' ? '#dcfce7' : i.durum === 'İptal' ? '#f1f5f9' : '#fef3c7', color: i.durum === 'Ödendi' ? '#166534' : i.durum === 'İptal' ? '#64748b' : '#92400e', fontWeight: '700', fontSize: '12px' }}>{i.durum}</span></td>
+                            <td style={{ padding: '12px' }}>
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                <button type="button" onClick={() => hakedisDuzenle(i)} style={{ padding: '6px 10px', background: '#fef3c7', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Düzenle</button>
+                                <button type="button" onClick={() => hakedisSil(i.id)} style={{ padding: '6px 10px', background: '#fee2e2', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Sil</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {hakedisler.length === 0 && <tr><td colSpan={12} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Henüz hakediş kaydı yok.</td></tr>}
                     </tbody>
                   </table>
                 </div>
