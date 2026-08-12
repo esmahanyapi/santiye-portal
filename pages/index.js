@@ -753,7 +753,40 @@ export default function Dashboard() {
   }
 
   return (
-    <div
+    <>
+
+      <style jsx global>{`
+        * { box-sizing: border-box; }
+        html, body, #__next { margin: 0; min-height: 100%; }
+        body { overflow-x: hidden; }
+        .santiye-main { min-width: 0; }
+        .santiye-tabs { overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+        .santiye-tabs button { flex: 0 0 auto; white-space: nowrap; }
+        .santiye-main table { min-width: 760px; }
+        .santiye-main input, .santiye-main select, .santiye-main textarea, .santiye-main button { max-width: 100%; }
+        @media (max-width: 768px) {
+          .santiye-app { flex-direction: column !important; min-height: 100vh !important; }
+          .santiye-sidebar { width: 100% !important; min-height: auto !important; padding: 14px !important; position: relative !important; }
+          .santiye-sidebar > ul { flex-direction: row !important; overflow-x: auto !important; overflow-y: hidden !important; flex: none !important; padding-bottom: 4px !important; }
+          .santiye-sidebar > ul li { flex: 0 0 auto !important; white-space: nowrap !important; }
+          .santiye-sidebar form { margin-top: 12px !important; padding-top: 12px !important; }
+          .santiye-main { width: 100% !important; max-width: none !important; padding: 16px !important; overflow-x: hidden !important; }
+          .santiye-main h1 { font-size: 22px !important; line-height: 1.2 !important; }
+          .santiye-main h2 { font-size: 18px !important; }
+          .santiye-main [style*="display: flex"] { flex-wrap: wrap !important; }
+          .santiye-main [style*="display: grid"] { grid-template-columns: 1fr !important; }
+          .santiye-main .santiye-tabs { flex-wrap: nowrap !important; }
+          .santiye-main table { font-size: 12px !important; }
+          .santiye-main th, .santiye-main td { padding: 9px 8px !important; }
+        }
+        @media (max-width: 480px) {
+          .santiye-sidebar { padding: 12px !important; }
+          .santiye-main { padding: 12px !important; }
+          .santiye-main button { min-height: 42px; }
+        }
+      `}</style>
+      <div
+      className="santiye-app"
       style={{
         display: 'flex',
         minHeight: '100vh',
@@ -763,6 +796,7 @@ export default function Dashboard() {
     >
       {/* SOL MENÜ */}
       <div
+        className="santiye-sidebar"
         style={{
           width: '300px',
           backgroundColor: '#0f172a',
@@ -786,10 +820,14 @@ export default function Dashboard() {
           <img
             src={SIDEBAR_LOGO}
             alt="Esmahan Yapı"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
             style={{
-              width: '38px',
+              width: '82px',
               height: '38px',
               objectFit: 'contain',
+              objectPosition: 'left center',
               flexShrink: 0
             }}
           />
@@ -950,6 +988,7 @@ export default function Dashboard() {
 
       {/* ANA İÇERİK */}
       <div
+        className="santiye-main"
         style={{
           flex: 1,
           padding: '40px',
@@ -1050,6 +1089,7 @@ export default function Dashboard() {
 
             {/* SEKMELER */}
             <div
+              className="santiye-tabs"
               style={{
                 display: 'flex',
                 gap: '12px',
@@ -2090,6 +2130,7 @@ export default function Dashboard() {
           </>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
