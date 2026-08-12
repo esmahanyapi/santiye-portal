@@ -18,6 +18,12 @@ export default function Dashboard() {
   const [alacakBorclar, setAlacakBorclar] = useState([]);
   const [cariler, setCariler] = useState([]);
   const [hakedisler, setHakedisler] = useState([]);
+  const [projeButceleri, setProjeButceleri] = useState([]);
+  const [projeMaliyetleri, setProjeMaliyetleri] = useState([]);
+  const [maliyetForm, setMaliyetForm] = useState({ kategori: 'Beton', butce_tutari: '', aciklama: '' });
+  const [maliyetKayitForm, setMaliyetKayitForm] = useState({ kategori: 'Beton', tutar: '', tarih: '', cari_id: '', gider_id: '', aciklama: '' });
+  const [butceDuzenlenenId, setButceDuzenlenenId] = useState(null);
+  const [maliyetDuzenlenenId, setMaliyetDuzenlenenId] = useState(null);
   const [aktifSekme, setAktifSekme] = useState('ozet');
 
   const cariFormBaslangic = {
@@ -93,6 +99,10 @@ export default function Dashboard() {
     durum: 'Bekliyor'
   };
   const [finansForm, setFinansForm] = useState(finansFormBaslangic);
+
+  useEffect(() => {
+    setMaliyetKayitForm((prev) => ({ ...prev, tarih: prev.tarih || bugununTarihi() }));
+  }, []);
 
   // SAYFA AÇILDIĞINDA KULLANICI OTURUMUNU KONTROL ET
   useEffect(() => {
@@ -189,6 +199,18 @@ export default function Dashboard() {
       .eq('proje_id', seciliProje.id)
       .order('tarih', { ascending: false });
 
+    const { data: pb, error: pbError } = await supabase
+      .from('proje_butceleri')
+      .select('*')
+      .eq('proje_id', seciliProje.id)
+      .order('kategori', { ascending: true });
+
+    const { data: pm, error: pmError } = await supabase
+      .from('proje_maliyetleri')
+      .select('*, cariler(id, ad, tip)')
+      .eq('proje_id', seciliProje.id)
+      .order('tarih', { ascending: false });
+
     if (hError) {
       console.error('Harcamalar alınamadı:', hError);
     }
@@ -205,12 +227,20 @@ export default function Dashboard() {
     if (hdError) {
       console.error('Hakedişler alınamadı:', hdError);
     }
+    if (pbError) {
+      console.error('Proje bütçeleri alınamadı:', pbError);
+    }
+    if (pmError) {
+      console.error('Proje maliyetleri alınamadı:', pmError);
+    }
 
     setHarcamalar(h || []);
     setGelirler(g || []);
     setAlacakBorclar(f || []);
     setCariler(c || []);
     setHakedisler(hd || []);
+    setProjeButceleri(pb || []);
+    setProjeMaliyetleri(pm || []);
   }
 
   // YENİ PROJE EKLE
@@ -591,6 +621,81 @@ export default function Dashboard() {
     setMesaj('Hakediş silindi.');
     setHata('');
     await verileriGetir();
+  }
+
+  // PROJE BÜTÇESİ / MALİYET KAYDET
+  const maliyetKategorileri = ['Beton', 'Demir', 'Kalıp', 'İşçilik', 'Taşeron', 'Elektrik', 'Mekanik', 'Doğrama', 'Boya', 'Belediye / Ruhsat / Harç', 'Nakliye', 'Vergi / SGK', 'Diğer'];
+
+  async function butceKaydet(event) {
+    event.preventDefault();
+    if (!seciliProje) return setHata('Önce bir proje seçmelisiniz.');
+    const tutar = Number(maliyetForm.butce_tutari);
+    if (!maliyetForm.kategori || !Number.isFinite(tutar) || tutar < 0) {
+      return setHata('Kategori ve geçerli bütçe tutarı girin.');
+    }
+    setHata(''); setMesaj('');
+    const kayit = { proje_id: seciliProje.id, kategori: maliyetForm.kategori, butce_tutari: tutar, aciklama: maliyetForm.aciklama.trim(), aktif: true };
+    const sonuc = butceDuzenlenenId
+      ? await supabase.from('proje_butceleri').update(kayit).eq('id', butceDuzenlenenId).eq('proje_id', seciliProje.id)
+      : await supabase.from('proje_butceleri').upsert([kayit], { onConflict: 'proje_id,kategori' });
+    if (sonuc.error) { setHata('Bütçe kaydedilemedi: ' + sonuc.error.message); return; }
+    setMaliyetForm({ kategori: 'Beton', butce_tutari: '', aciklama: '' });
+    setButceDuzenlenenId(null);
+    setMesaj('Proje bütçesi kaydedildi.');
+    await verileriGetir();
+  }
+
+  function butceDuzenle(kayit) {
+    setMaliyetForm({ kategori: kayit.kategori || 'Beton', butce_tutari: kayit.butce_tutari ?? '', aciklama: kayit.aciklama || '' });
+    setButceDuzenlenenId(kayit.id); setHata(''); setMesaj('Bütçe düzenleme modunda.');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function butceSil(id) {
+    if (!window.confirm('Bu bütçe kalemini silmek istediğinize emin misiniz?')) return;
+    const { error } = await supabase.from('proje_butceleri').delete().eq('id', id).eq('proje_id', seciliProje.id);
+    if (error) { setHata('Bütçe silinemedi: ' + error.message); return; }
+    setMesaj('Bütçe kalemi silindi.'); setHata(''); await verileriGetir();
+  }
+
+  async function maliyetKaydet(event) {
+    event.preventDefault();
+    if (!seciliProje) return setHata('Önce bir proje seçmelisiniz.');
+    const tutar = Number(maliyetKayitForm.tutar);
+    if (!maliyetKayitForm.kategori || !maliyetKayitForm.tarih || !Number.isFinite(tutar) || tutar <= 0) {
+      return setHata('Tarih, kategori ve 0’dan büyük tutar zorunludur.');
+    }
+    setHata(''); setMesaj('');
+    const kayit = {
+      proje_id: seciliProje.id,
+      gider_id: maliyetKayitForm.gider_id ? Number(maliyetKayitForm.gider_id) : null,
+      kategori: maliyetKayitForm.kategori,
+      tutar,
+      tarih: maliyetKayitForm.tarih,
+      aciklama: maliyetKayitForm.aciklama.trim(),
+      cari_id: maliyetKayitForm.cari_id ? Number(maliyetKayitForm.cari_id) : null,
+      aktif: true
+    };
+    const sonuc = maliyetDuzenlenenId
+      ? await supabase.from('proje_maliyetleri').update(kayit).eq('id', maliyetDuzenlenenId).eq('proje_id', seciliProje.id)
+      : await supabase.from('proje_maliyetleri').insert([kayit]);
+    if (sonuc.error) { setHata('Maliyet kaydedilemedi: ' + sonuc.error.message); return; }
+    setMaliyetKayitForm({ kategori: 'Beton', tutar: '', tarih: bugununTarihi(), cari_id: '', gider_id: '', aciklama: '' });
+    setMaliyetDuzenlenenId(null); setMesaj(maliyetDuzenlenenId ? 'Maliyet güncellendi.' : 'Maliyet kaydedildi.');
+    await verileriGetir();
+  }
+
+  function maliyetDuzenle(kayit) {
+    setMaliyetKayitForm({ kategori: kayit.kategori || 'Beton', tutar: kayit.tutar ?? '', tarih: kayit.tarih || bugununTarihi(), cari_id: kayit.cari_id || '', gider_id: kayit.gider_id || '', aciklama: kayit.aciklama || '' });
+    setMaliyetDuzenlenenId(kayit.id); setHata(''); setMesaj('Maliyet düzenleme modunda.'); window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function maliyetSil(id) {
+    if (!window.confirm('Bu maliyet kaydını silmek istediğinize emin misiniz?')) return;
+    const { error } = await supabase.from('proje_maliyetleri').delete().eq('id', id).eq('proje_id', seciliProje.id);
+    if (error) { setHata('Maliyet silinemedi: ' + error.message); return; }
+    if (maliyetDuzenlenenId === id) setMaliyetDuzenlenenId(null);
+    setMesaj('Maliyet kaydı silindi.'); setHata(''); await verileriGetir();
   }
 
   // GELİR / GİDER KAYDET / GÜNCELLE
@@ -1483,6 +1588,11 @@ export default function Dashboard() {
                   id: 'hakedisler',
                   label: '🧾 Hakedişler',
                   color: '#d97706'
+                },
+                {
+                  id: 'maliyet',
+                  label: '🏗️ Proje Maliyeti',
+                  color: '#2563eb'
                 }
               ].map((s) => (
                 <button
@@ -1498,6 +1608,10 @@ export default function Dashboard() {
                     setCariForm({ ...cariFormBaslangic });
                     setHakedisDuzenlenenId(null);
                     setHakedisForm({ ...hakedisFormBaslangic, tarih: bugununTarihi() });
+                    setButceDuzenlenenId(null);
+                    setMaliyetDuzenlenenId(null);
+                    setMaliyetForm({ kategori: 'Beton', butce_tutari: '', aciklama: '' });
+                    setMaliyetKayitForm({ kategori: 'Beton', tutar: '', tarih: bugununTarihi(), cari_id: '', gider_id: '', aciklama: '' });
                     setForm({ ...formBaslangic, tarih: bugununTarihi() });
                     setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() });
                     setMesaj('');
@@ -2090,6 +2204,43 @@ export default function Dashboard() {
                       {gorunenCariler.length === 0 && <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Cari kaydı bulunamadı.</td></tr>}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            ) : aktifSekme === 'maliyet' ? (
+              /* PROJE MALİYETİ */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ background: 'white', padding: '26px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '15px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                    <div><h3 style={{ margin: 0, color: '#0f172a', fontSize: '20px' }}>{butceDuzenlenenId ? '✏️ Bütçe Düzenle' : '🎯 Proje Bütçesi'}</h3><p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Bu proje için kategori bazında hedef bütçeleri belirleyin.</p></div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}><span style={{ padding: '9px 12px', borderRadius: '8px', background: '#eff6ff', color: '#1d4ed8', fontWeight: '800' }}>Bütçe: ₺{projeButceleri.reduce((t,i)=>t+Number(i.butce_tutari||0),0).toLocaleString('tr-TR')}</span><span style={{ padding: '9px 12px', borderRadius: '8px', background: '#f8fafc', color: '#475569', fontWeight: '800' }}>Gerçekleşen: ₺{projeMaliyetleri.reduce((t,i)=>t+Number(i.tutar||0),0).toLocaleString('tr-TR')}</span></div>
+                  </div>
+                  <form onSubmit={butceKaydet} style={{ display:'flex', gap:'12px', flexWrap:'wrap', background:'#f8fafc', padding:'18px', borderRadius:'12px', border:'1px solid #e2e8f0', marginBottom:'20px' }}>
+                    <div style={{ flex:1, minWidth:'180px' }}><label style={{ display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px' }}>KATEGORİ</label><select value={maliyetForm.kategori} onChange={e=>setMaliyetForm({...maliyetForm,kategori:e.target.value})} style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px',background:'#fff'}}>{maliyetKategorileri.map(k=><option key={k}>{k}</option>)}</select></div>
+                    <div style={{ flex:1, minWidth:'180px' }}><label style={{ display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px' }}>BÜTÇE TUTARI (₺)</label><input type="number" min="0" step="0.01" value={maliyetForm.butce_tutari} onChange={e=>setMaliyetForm({...maliyetForm,butce_tutari:e.target.value})} placeholder="0.00" style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px'}} /></div>
+                    <div style={{ flex:2, minWidth:'220px' }}><label style={{ display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px' }}>AÇIKLAMA</label><input value={maliyetForm.aciklama} onChange={e=>setMaliyetForm({...maliyetForm,aciklama:e.target.value})} placeholder="Örn: kaba yapı bütçesi" style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px'}} /></div>
+                    <div style={{ display:'flex',alignItems:'end',gap:'8px' }}><button type="submit" style={{padding:'10px 18px',background:'#2563eb',color:'#fff',border:'none',borderRadius:'8px',fontWeight:'800',cursor:'pointer'}}>{butceDuzenlenenId?'✓ Güncelle':'➕ Bütçe Ekle'}</button>{butceDuzenlenenId&&<button type="button" onClick={()=>{setButceDuzenlenenId(null);setMaliyetForm({kategori:'Beton',butce_tutari:'',aciklama:''})}} style={{padding:'10px 15px',background:'#f1f5f9',border:'1px solid #cbd5e1',borderRadius:'8px',fontWeight:'700'}}>İptal</button>}</div>
+                  </form>
+                  <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:'700px'}}><thead><tr style={{background:'#eff6ff',color:'#1e3a8a',textAlign:'left'}}>{['Kategori','Bütçe','Gerçekleşen','Kalan','Gerçekleşme','İşlem'].map(h=><th key={h} style={{padding:'11px'}}>{h}</th>)}</tr></thead><tbody>
+                    {projeButceleri.map(b=>{const ger=projeMaliyetleri.filter(m=>m.kategori===b.kategori).reduce((t,m)=>t+Number(m.tutar||0),0);const but=Number(b.butce_tutari||0);const kalan=but-ger;const yuzde=but>0?(ger/but)*100:0;return <tr key={b.id} style={{borderBottom:'1px solid #f1f5f9'}}><td style={{padding:'11px',fontWeight:'800'}}>{b.kategori}</td><td style={{padding:'11px'}}>₺{but.toLocaleString('tr-TR')}</td><td style={{padding:'11px',fontWeight:'700'}}>₺{ger.toLocaleString('tr-TR')}</td><td style={{padding:'11px',fontWeight:'800',color:kalan<0?'#dc2626':'#166534'}}>₺{kalan.toLocaleString('tr-TR')}</td><td style={{padding:'11px'}}>{yuzde.toLocaleString('tr-TR',{maximumFractionDigits:1})}%</td><td style={{padding:'11px'}}><button onClick={()=>butceDuzenle(b)} style={{padding:'6px 9px',background:'#fef3c7',border:'none',borderRadius:'6px',fontWeight:'700',cursor:'pointer',marginRight:'5px'}}>Düzenle</button><button onClick={()=>butceSil(b.id)} style={{padding:'6px 9px',background:'#fee2e2',border:'none',borderRadius:'6px',fontWeight:'700',cursor:'pointer'}}>Sil</button></td></tr>})}
+                    {projeButceleri.length===0&&<tr><td colSpan={6} style={{padding:'35px',textAlign:'center',color:'#94a3b8'}}>Henüz bütçe kalemi eklenmedi.</td></tr>}
+                  </tbody></table></div>
+                </div>
+
+                <div style={{ background:'white', padding:'26px', borderRadius:'16px', boxShadow:'0 4px 6px -1px rgba(0,0,0,0.05)', border:'1px solid #e2e8f0' }}>
+                  <h3 style={{margin:'0 0 5px',color:'#0f172a',fontSize:'20px'}}>{maliyetDuzenlenenId?'✏️ Maliyet Düzenle':'💸 Gerçekleşen Maliyet Ekle'}</h3><p style={{margin:'0 0 18px',color:'#64748b',fontSize:'13px'}}>Gerçekleşen harcamaları proje maliyetine işleyin. Mevcut gider kaydını seçerseniz aynı kayda bağlantı kurulur.</p>
+                  <form onSubmit={maliyetKaydet} style={{display:'flex',gap:'12px',flexWrap:'wrap',background:'#f8fafc',padding:'18px',borderRadius:'12px',border:'1px solid #e2e8f0',marginBottom:'20px'}}>
+                    <div style={{flex:1,minWidth:'170px'}}><label style={{display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px'}}>TARİH *</label><input required type="date" value={maliyetKayitForm.tarih} onChange={e=>setMaliyetKayitForm({...maliyetKayitForm,tarih:e.target.value})} style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px'}}/></div>
+                    <div style={{flex:1,minWidth:'170px'}}><label style={{display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px'}}>KATEGORİ *</label><select value={maliyetKayitForm.kategori} onChange={e=>setMaliyetKayitForm({...maliyetKayitForm,kategori:e.target.value})} style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px',background:'#fff'}}>{maliyetKategorileri.map(k=><option key={k}>{k}</option>)}</select></div>
+                    <div style={{flex:1,minWidth:'170px'}}><label style={{display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px'}}>TUTAR (₺) *</label><input required type="number" min="0.01" step="0.01" value={maliyetKayitForm.tutar} onChange={e=>setMaliyetKayitForm({...maliyetKayitForm,tutar:e.target.value})} placeholder="0.00" style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px',fontWeight:'700'}}/></div>
+                    <div style={{flex:1.2,minWidth:'190px'}}><label style={{display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px'}}>CARİ / FİRMA</label><select value={maliyetKayitForm.cari_id} onChange={e=>setMaliyetKayitForm({...maliyetKayitForm,cari_id:e.target.value})} style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px',background:'#fff'}}><option value="">Seçim yok</option>{cariler.map(c=><option key={c.id} value={c.id}>{c.ad}</option>)}</select></div>
+                    <div style={{flex:1.5,minWidth:'220px'}}><label style={{display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px'}}>MEVCUT GİDER KAYDI</label><select value={maliyetKayitForm.gider_id} onChange={e=>setMaliyetKayitForm({...maliyetKayitForm,gider_id:e.target.value})} style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px',background:'#fff'}}><option value="">Bağlantı yok</option>{harcamalar.map(g=><option key={g.id} value={g.id}>{g.tarih||'-'} — {g.oge||'-'} — ₺{Number(g.tutar||0).toLocaleString('tr-TR')}</option>)}</select></div>
+                    <div style={{flex:2,minWidth:'240px'}}><label style={{display:'block',fontSize:'11px',fontWeight:'bold',color:'#64748b',marginBottom:'6px'}}>AÇIKLAMA</label><input value={maliyetKayitForm.aciklama} onChange={e=>setMaliyetKayitForm({...maliyetKayitForm,aciklama:e.target.value})} placeholder="Maliyet açıklaması" style={{width:'100%',padding:'10px',border:'1px solid #cbd5e1',borderRadius:'8px'}}/></div>
+                    <div style={{display:'flex',alignItems:'end',gap:'8px'}}><button type="submit" style={{padding:'10px 18px',background:'#2563eb',color:'#fff',border:'none',borderRadius:'8px',fontWeight:'800',cursor:'pointer'}}>{maliyetDuzenlenenId?'✓ Güncelle':'➕ Maliyet Kaydet'}</button>{maliyetDuzenlenenId&&<button type="button" onClick={()=>{setMaliyetDuzenlenenId(null);setMaliyetKayitForm({kategori:'Beton',tutar:'',tarih:bugununTarihi(),cari_id:'',gider_id:'',aciklama:''})}} style={{padding:'10px 15px',background:'#f1f5f9',border:'1px solid #cbd5e1',borderRadius:'8px',fontWeight:'700'}}>İptal</button>}</div>
+                  </form>
+                  <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:'950px'}}><thead><tr style={{background:'#eff6ff',color:'#1e3a8a',textAlign:'left'}}>{['Tarih','Kategori','Cari / Firma','Gider Bağlantısı','Açıklama','Tutar','İşlem'].map(h=><th key={h} style={{padding:'11px'}}>{h}</th>)}</tr></thead><tbody>
+                    {projeMaliyetleri.map(m=><tr key={m.id} style={{borderBottom:'1px solid #f1f5f9'}}><td style={{padding:'11px',whiteSpace:'nowrap'}}>{m.tarih||'-'}</td><td style={{padding:'11px',fontWeight:'800'}}>{m.kategori}</td><td style={{padding:'11px'}}>{m.cariler?.ad||cariler.find(c=>c.id===m.cari_id)?.ad||'-'}</td><td style={{padding:'11px'}}>{m.gider_id ? `#${m.gider_id}` : '-'}</td><td style={{padding:'11px',color:'#64748b'}}>{m.aciklama||'-'}</td><td style={{padding:'11px',fontWeight:'800'}}>₺{Number(m.tutar||0).toLocaleString('tr-TR')}</td><td style={{padding:'11px'}}><button onClick={()=>maliyetDuzenle(m)} style={{padding:'6px 9px',background:'#fef3c7',border:'none',borderRadius:'6px',fontWeight:'700',cursor:'pointer',marginRight:'5px'}}>Düzenle</button><button onClick={()=>maliyetSil(m.id)} style={{padding:'6px 9px',background:'#fee2e2',border:'none',borderRadius:'6px',fontWeight:'700',cursor:'pointer'}}>Sil</button></td></tr>)}
+                    {projeMaliyetleri.length===0&&<tr><td colSpan={7} style={{padding:'35px',textAlign:'center',color:'#94a3b8'}}>Henüz gerçekleşen maliyet kaydı yok.</td></tr>}
+                  </tbody></table></div>
                 </div>
               </div>
             ) : aktifSekme === 'hakedisler' ? (
