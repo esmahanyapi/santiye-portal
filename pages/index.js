@@ -36,6 +36,7 @@ export default function Dashboard() {
   const [cariDuzenlenenId, setCariDuzenlenenId] = useState(null);
   const [cariArama, setCariArama] = useState('');
   const [cariAktifFiltre, setCariAktifFiltre] = useState('aktif');
+  const [cariDetayId, setCariDetayId] = useState(null);
 
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
@@ -2018,8 +2019,20 @@ export default function Dashboard() {
                       {['Tür','Firma / Kişi','Yetkili','Telefon','E-posta','Vergi No','Notlar','Durum','İşlem'].map(h => <th key={h} style={{ padding: '12px' }}>{h}</th>)}
                     </tr></thead>
                     <tbody>
-                      {gorunenCariler.map((cari) => (
-                        <tr key={cari.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      {gorunenCariler.map((cari) => {
+                        const cariHakedisleri = hakedisler.filter(h => Number(h.cari_id) === Number(cari.id));
+                        const toplamHakedis = cariHakedisleri.reduce((t, h) => t + Number(h.net_tutar || 0), 0);
+                        const odenenHakedis = cariHakedisleri.reduce((t, h) => t + Number(h.odenen_tutar || 0), 0);
+                        const kalanHakedis = Math.max(toplamHakedis - odenenHakedis, 0);
+                        const cariFinans = alacakBorclar.filter(f => (f.taraf || '').trim().toLocaleLowerCase('tr-TR') === (cari.ad || '').trim().toLocaleLowerCase('tr-TR'));
+                        const toplamAlacak = cariFinans.filter(f => f.tur === 'Alacak').reduce((t, f) => t + Number(f.tutar || 0), 0);
+                        const toplamBorc = cariFinans.filter(f => f.tur === 'Borç').reduce((t, f) => t + Number(f.tutar || 0), 0);
+                        const bekleyenAlacak = cariFinans.filter(f => f.tur === 'Alacak' && f.durum !== 'Ödendi' && f.durum !== 'İptal').reduce((t, f) => t + Number(f.tutar || 0), 0);
+                        const bekleyenBorc = cariFinans.filter(f => f.tur === 'Borç' && f.durum !== 'Ödendi' && f.durum !== 'İptal').reduce((t, f) => t + Number(f.tutar || 0), 0);
+                        const detayAcik = cariDetayId === cari.id;
+                        return (
+                          <React.Fragment key={cari.id}>
+                        <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '12px' }}>{cari.tip === 'Kişi' ? '👤 Kişi' : '🏢 Firma'}</td>
                           <td style={{ padding: '12px', fontWeight: '800', color: '#0f172a' }}>{cari.ad}</td>
                           <td style={{ padding: '12px' }}>{cari.yetkili || '-'}</td>
@@ -2031,11 +2044,49 @@ export default function Dashboard() {
                           <td style={{ padding: '12px' }}>
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                               <button type="button" onClick={() => cariDuzenle(cari)} style={{ padding: '6px 10px', background: '#fef3c7', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Düzenle</button>
+                              <button type="button" onClick={() => setCariDetayId(detayAcik ? null : cari.id)} style={{ padding: '6px 10px', background: '#dbeafe', color: '#1d4ed8', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>{detayAcik ? 'Kapat' : 'Finans'}</button>
                               <button type="button" onClick={() => cariSil(cari.id)} style={{ padding: '6px 10px', background: '#fee2e2', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Sil</button>
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        {detayAcik && (
+                          <tr>
+                            <td colSpan={9} style={{ padding: '0 12px 16px', background: '#f8fafc' }}>
+                              <div style={{ marginTop: '8px', padding: '18px', borderRadius: '12px', border: '1px solid #dbeafe', background: '#fff' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
+                                  <div>
+                                    <div style={{ fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>📊 {cari.ad} — Finansal Özet</div>
+                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Hakediş, ödeme ve alacak/borç kayıtlarının özeti</div>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px', marginBottom: '18px' }}>
+                                  <div style={{ padding: '14px', background: '#eff6ff', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '800' }}>TOPLAM HAKEDİŞ</div><div style={{ fontSize: '20px', fontWeight: '900', color: '#1d4ed8', marginTop: '5px' }}>₺{toplamHakedis.toLocaleString('tr-TR')}</div></div>
+                                  <div style={{ padding: '14px', background: '#f0fdf4', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '800' }}>HAKEDİŞ ÖDENEN</div><div style={{ fontSize: '20px', fontWeight: '900', color: '#15803d', marginTop: '5px' }}>₺{odenenHakedis.toLocaleString('tr-TR')}</div></div>
+                                  <div style={{ padding: '14px', background: '#fff7ed', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '800' }}>HAKEDİŞ KALAN</div><div style={{ fontSize: '20px', fontWeight: '900', color: '#c2410c', marginTop: '5px' }}>₺{kalanHakedis.toLocaleString('tr-TR')}</div></div>
+                                  <div style={{ padding: '14px', background: '#fef2f2', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '800' }}>BEKLEYEN BORÇ</div><div style={{ fontSize: '20px', fontWeight: '900', color: '#b91c1c', marginTop: '5px' }}>₺{bekleyenBorc.toLocaleString('tr-TR')}</div></div>
+                                  <div style={{ padding: '14px', background: '#ecfdf5', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '800' }}>BEKLEYEN ALACAK</div><div style={{ fontSize: '20px', fontWeight: '900', color: '#047857', marginTop: '5px' }}>₺{bekleyenAlacak.toLocaleString('tr-TR')}</div></div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: '16px' }}>
+                                  <div>
+                                    <div style={{ fontWeight: '900', color: '#334155', marginBottom: '8px' }}>🧾 Hakediş Geçmişi</div>
+                                    {cariHakedisleri.length === 0 ? <div style={{ color: '#94a3b8', fontSize: '13px' }}>Henüz hakediş yok.</div> : (
+                                      <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left' }}><th style={{ padding: '8px' }}>No</th><th style={{ padding: '8px' }}>Tarih</th><th style={{ padding: '8px' }}>Net</th><th style={{ padding: '8px' }}>Ödenen</th><th style={{ padding: '8px' }}>Kalan</th><th style={{ padding: '8px' }}>Durum</th></tr></thead><tbody>{cariHakedisleri.map(h => { const net = Number(h.net_tutar || 0); const od = Number(h.odenen_tutar || 0); return <tr key={h.id} style={{ borderTop: '1px solid #f1f5f9' }}><td style={{ padding: '8px', fontWeight: '700' }}>{h.hakedis_no}</td><td style={{ padding: '8px' }}>{h.tarih || '-'}</td><td style={{ padding: '8px' }}>₺{net.toLocaleString('tr-TR')}</td><td style={{ padding: '8px' }}>₺{od.toLocaleString('tr-TR')}</td><td style={{ padding: '8px', fontWeight: '800' }}>₺{Math.max(net-od,0).toLocaleString('tr-TR')}</td><td style={{ padding: '8px' }}>{h.durum || '-'}</td></tr>; })}</tbody></table></div>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontWeight: '900', color: '#334155', marginBottom: '8px' }}>💳 Alacak / Borç Geçmişi</div>
+                                    {cariFinans.length === 0 ? <div style={{ color: '#94a3b8', fontSize: '13px' }}>Bu cari adına kayıtlı alacak/borç yok.</div> : (
+                                      <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left' }}><th style={{ padding: '8px' }}>Tür</th><th style={{ padding: '8px' }}>Tarih</th><th style={{ padding: '8px' }}>Kategori</th><th style={{ padding: '8px' }}>Tutar</th><th style={{ padding: '8px' }}>Durum</th></tr></thead><tbody>{cariFinans.map(f => <tr key={f.id} style={{ borderTop: '1px solid #f1f5f9' }}><td style={{ padding: '8px', fontWeight: '800', color: f.tur === 'Alacak' ? '#047857' : '#b91c1c' }}>{f.tur}</td><td style={{ padding: '8px' }}>{f.tarih || '-'}</td><td style={{ padding: '8px' }}>{f.kategori || '-'}</td><td style={{ padding: '8px', fontWeight: '700' }}>₺{Number(f.tutar || 0).toLocaleString('tr-TR')}</td><td style={{ padding: '8px' }}>{f.durum || '-'}</td></tr>)}</tbody></table></div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                          </React.Fragment>
+                        );
+                      })}
                       {gorunenCariler.length === 0 && <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Cari kaydı bulunamadı.</td></tr>}
                     </tbody>
                   </table>
