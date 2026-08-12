@@ -1020,8 +1020,8 @@ export default function Dashboard() {
     };
 
     const [regularResponse, boldResponse] = await Promise.all([
-      fetch('/fonts/NotoSans-Regular.ttf'),
-      fetch('/fonts/NotoSans-Bold.ttf')
+      fetch('/fonts/DejaVuSans.ttf'),
+      fetch('/fonts/DejaVuSans-Bold.ttf')
     ]);
 
     if (!regularResponse.ok || !boldResponse.ok) {
@@ -1074,11 +1074,11 @@ export default function Dashboard() {
       });
 
       // Türkçe karakter desteği için Noto Sans fontlarını PDF'e göm.
-      doc.addFileToVFS('NotoSans-Regular.ttf', fontlar.regular);
-      doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
-      doc.addFileToVFS('NotoSans-Bold.ttf', fontlar.bold);
-      doc.addFont('NotoSans-Bold.ttf', 'NotoSans', 'bold');
-      doc.setFont('NotoSans', 'normal');
+      doc.addFileToVFS('DejaVuSans.ttf', fontlar.regular);
+      doc.addFont('DejaVuSans.ttf', 'DejaVuSans', 'normal');
+      doc.addFileToVFS('DejaVuSans-Bold.ttf', fontlar.bold);
+      doc.addFont('DejaVuSans-Bold.ttf', 'DejaVuSans', 'bold');
+      doc.setFont('DejaVuSans', 'normal');
 
       const sekmeAdi = aktifSekme === 'gelirler' ? 'Gelirler' : 'Giderler';
       const toplam = gorunenListe.reduce(
@@ -1095,11 +1095,11 @@ export default function Dashboard() {
       // PDF BAŞLIĞI + ESMAHAN LOGOSU
       doc.addImage(logoDataUrl, 'PNG', 14, 7, 48, 16);
 
-      doc.setFont('NotoSans', 'bold');
+      doc.setFont('DejaVuSans', 'bold');
       doc.setFontSize(16);
       doc.text(seciliProje.ad || 'Proje', 68, 14);
 
-      doc.setFont('NotoSans', 'normal');
+      doc.setFont('DejaVuSans', 'normal');
       doc.setFontSize(10);
       doc.text(`${sekmeAdi} Listesi`, 68, 21);
 
@@ -1145,7 +1145,7 @@ export default function Dashboard() {
         startY: filtreBilgisi ? 34 : 31,
         theme: 'grid',
         styles: {
-          font: 'NotoSans',
+          font: 'DejaVuSans',
           fontStyle: 'normal',
           fontSize: 8,
           cellPadding: 2.5,
@@ -1153,7 +1153,7 @@ export default function Dashboard() {
           valign: 'middle'
         },
         headStyles: {
-          font: 'NotoSans',
+          font: 'DejaVuSans',
           fontStyle: 'bold',
           fontSize: 8
         },
@@ -1173,7 +1173,7 @@ export default function Dashboard() {
         ? doc.lastAutoTable.finalY + 10
         : 200;
 
-      doc.setFont('NotoSans', 'bold');
+      doc.setFont('DejaVuSans', 'bold');
       doc.setFontSize(11);
       doc.text(
         `Toplam: ${toplam.toLocaleString('tr-TR')} TL | Kayıt: ${gorunenListe.length}`,
@@ -1181,7 +1181,7 @@ export default function Dashboard() {
         sonY
       );
 
-      doc.setFont('NotoSans', 'normal');
+      doc.setFont('DejaVuSans', 'normal');
       doc.setFontSize(8);
       doc.text(`Oluşturulma: ${bugununTarihi()}`, 14, sonY + 6);
 
@@ -1282,6 +1282,13 @@ export default function Dashboard() {
           <img
             src={SIDEBAR_LOGO}
             alt="Esmahan Yapı"
+            onClick={() => {
+              setAktifSekme('ozet');
+              setMesaj('');
+              setHata('');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            title="Ana sayfaya dön"
             onError={(e) => {
               e.currentTarget.style.display = 'none';
             }}
@@ -1290,7 +1297,8 @@ export default function Dashboard() {
               height: '38px',
               objectFit: 'contain',
               objectPosition: 'left center',
-              flexShrink: 0
+              flexShrink: 0,
+              cursor: 'pointer'
             }}
           />
 
