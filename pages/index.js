@@ -378,24 +378,15 @@ export default function Dashboard() {
       'Makbuz No': i.makbuz_no || '',
       'Fatura No': i.fatura_no || '',
       Kategori: i.kategori || '',
-      ...(aktifSekme === 'giderler'
-        ? { 'Ödeme Kaynağı': i.odeme_kaynagi || 'Kasa' }
-        : {}),
       Açıklama: i.aciklama || '',
       'Tutar (₺)': Number(i.tutar) || 0
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(excelVerileri);
-    worksheet['!cols'] =
-      aktifSekme === 'giderler'
-        ? [
-            { wch: 14 }, { wch: 25 }, { wch: 16 }, { wch: 16 },
-            { wch: 24 }, { wch: 20 }, { wch: 42 }, { wch: 18 }
-          ]
-        : [
-            { wch: 14 }, { wch: 25 }, { wch: 16 }, { wch: 16 },
-            { wch: 24 }, { wch: 42 }, { wch: 18 }
-          ];
+    worksheet['!cols'] = [
+      { wch: 14 }, { wch: 25 }, { wch: 16 }, { wch: 16 },
+      { wch: 24 }, { wch: 42 }, { wch: 18 }
+    ];
 
     const workbook = XLSX.utils.book_new();
     const sekmeAdi = aktifSekme === 'gelirler' ? 'Gelirler' : 'Giderler';
@@ -543,50 +534,25 @@ export default function Dashboard() {
         doc.text(filtreBilgisi, 14, 29);
       }
 
-      const tabloBasliklari =
-        aktifSekme === 'giderler'
-          ? [
-              'Tarih',
-              'Öğe / Firma / Kişi',
-              'Makbuz No',
-              'Fatura No',
-              'Kategori',
-              'Ödeme Kaynağı',
-              'Açıklama',
-              'Tutar (TL)'
-            ]
-          : [
-              'Tarih',
-              'Öğe / Firma / Kişi',
-              'Makbuz No',
-              'Fatura No',
-              'Kategori',
-              'Açıklama',
-              'Tutar (TL)'
-            ];
+      const tabloBasliklari = [
+        'Tarih',
+        'Öğe / Firma / Kişi',
+        'Makbuz No',
+        'Fatura No',
+        'Kategori',
+        'Açıklama',
+        'Tutar (TL)'
+      ];
 
-      const tabloVerileri = gorunenListe.map((i) =>
-        aktifSekme === 'giderler'
-          ? [
-              i.tarih || '',
-              i.oge || '',
-              i.makbuz_no || '-',
-              i.fatura_no || '-',
-              i.kategori || '-',
-              i.odeme_kaynagi || 'Kasa',
-              i.aciklama || '-',
-              `${Number(i.tutar || 0).toLocaleString('tr-TR')} TL`
-            ]
-          : [
-              i.tarih || '',
-              i.oge || '',
-              i.makbuz_no || '-',
-              i.fatura_no || '-',
-              i.kategori || '-',
-              i.aciklama || '-',
-              `${Number(i.tutar || 0).toLocaleString('tr-TR')} TL`
-            ]
-      );
+      const tabloVerileri = gorunenListe.map((i) => [
+        i.tarih || '',
+        i.oge || '',
+        i.makbuz_no || '-',
+        i.fatura_no || '-',
+        i.kategori || '-',
+        i.aciklama || '-',
+        `${Number(i.tutar || 0).toLocaleString('tr-TR')} TL`
+      ]);
 
       autoTable(doc, {
         head: [tabloBasliklari],
@@ -606,27 +572,15 @@ export default function Dashboard() {
           fontStyle: 'bold',
           fontSize: 8
         },
-        columnStyles:
-          aktifSekme === 'giderler'
-            ? {
-                0: { cellWidth: 22 },
-                1: { cellWidth: 34 },
-                2: { cellWidth: 23 },
-                3: { cellWidth: 23 },
-                4: { cellWidth: 28 },
-                5: { cellWidth: 28 },
-                6: { cellWidth: 65 },
-                7: { cellWidth: 27, halign: 'right' }
-              }
-            : {
-                0: { cellWidth: 24 },
-                1: { cellWidth: 36 },
-                2: { cellWidth: 25 },
-                3: { cellWidth: 25 },
-                4: { cellWidth: 30 },
-                5: { cellWidth: 77 },
-                6: { cellWidth: 30, halign: 'right' }
-              },
+        columnStyles: {
+          0: { cellWidth: 24 },
+          1: { cellWidth: 36 },
+          2: { cellWidth: 25 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 30 },
+          5: { cellWidth: 77 },
+          6: { cellWidth: 30, halign: 'right' }
+        },
         margin: { left: 14, right: 14 }
       });
 
@@ -1461,14 +1415,10 @@ export default function Dashboard() {
                       >
                         ÖDEME KAYNAĞI
                       </label>
-
                       <select
                         value={form.odeme_kaynagi || 'Kasa'}
                         onChange={(e) =>
-                          setForm({
-                            ...form,
-                            odeme_kaynagi: e.target.value
-                          })
+                          setForm({ ...form, odeme_kaynagi: e.target.value })
                         }
                         style={{
                           width: '100%',
