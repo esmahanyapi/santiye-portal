@@ -379,6 +379,9 @@ export default function Dashboard() {
       'Fatura No': i.fatura_no || '',
       Kategori: i.kategori || '',
       Açıklama: i.aciklama || '',
+      ...(aktifSekme === 'giderler'
+        ? { 'Ödeme Kaynağı': i.odeme_kaynagi || '' }
+        : {}),
       'Tutar (₺)': Number(i.tutar) || 0
     }));
 
@@ -540,6 +543,7 @@ export default function Dashboard() {
         'Makbuz No',
         'Fatura No',
         'Kategori',
+        ...(aktifSekme === 'giderler' ? ['Ödeme Kaynağı'] : []),
         'Açıklama',
         'Tutar (TL)'
       ];
@@ -550,6 +554,7 @@ export default function Dashboard() {
         i.makbuz_no || '-',
         i.fatura_no || '-',
         i.kategori || '-',
+        ...(aktifSekme === 'giderler' ? [i.odeme_kaynagi || '-'] : []),
         i.aciklama || '-',
         `${Number(i.tutar || 0).toLocaleString('tr-TR')} TL`
       ]);
@@ -1415,8 +1420,10 @@ export default function Dashboard() {
                       >
                         ÖDEME KAYNAĞI
                       </label>
-                      <select
-                        value={form.odeme_kaynagi || 'Kasa'}
+
+                      <input
+                        placeholder="Örn: Kasa, Hüseyin Özdemir, ABC Yapı, Borç, Çek..."
+                        value={form.odeme_kaynagi || ''}
                         onChange={(e) =>
                           setForm({ ...form, odeme_kaynagi: e.target.value })
                         }
@@ -1430,13 +1437,7 @@ export default function Dashboard() {
                           background: '#fff',
                           color: '#0f172a'
                         }}
-                      >
-                        <option value="Kasa">💰 Kasa</option>
-                        <option value="Şahsi Ödeme">👤 Şahsi Ödeme</option>
-                        <option value="Banka">🏦 Banka</option>
-                        <option value="Çek">🧾 Çek</option>
-                        <option value="Diğer">🔄 Diğer</option>
-                      </select>
+                      />
                     </div>
                   )}
 
