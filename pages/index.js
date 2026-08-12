@@ -37,21 +37,6 @@ export default function Dashboard() {
   const [cariArama, setCariArama] = useState('');
   const [cariAktifFiltre, setCariAktifFiltre] = useState('aktif');
 
-  const hakedisFormBaslangic = {
-    cari_id: '',
-    hakedis_no: '',
-    tarih: bugununTarihi(),
-    vade_tarihi: '',
-    aciklama: '',
-    brut_tutar: '',
-    kesinti: '',
-    odenen_tutar: '',
-    durum: 'Bekliyor',
-    notlar: ''
-  };
-  const [hakedisForm, setHakedisForm] = useState(hakedisFormBaslangic);
-  const [hakedisDuzenlenenId, setHakedisDuzenlenenId] = useState(null);
-
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
 
@@ -81,6 +66,21 @@ export default function Dashboard() {
   };
 
   const [form, setForm] = useState(formBaslangic);
+  const hakedisFormBaslangic = {
+    cari_id: '',
+    hakedis_no: '',
+    tarih: bugununTarihi(),
+    vade_tarihi: '',
+    aciklama: '',
+    brut_tutar: '',
+    kesinti: '',
+    odenen_tutar: '',
+    durum: 'Bekliyor',
+    notlar: ''
+  };
+  const [hakedisForm, setHakedisForm] = useState(hakedisFormBaslangic);
+  const [hakedisDuzenlenenId, setHakedisDuzenlenenId] = useState(null);
+
   const finansFormBaslangic = {
     tur: 'Alacak',
     taraf: '',
