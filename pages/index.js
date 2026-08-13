@@ -2156,7 +2156,7 @@ export default function Dashboard() {
                 setMobilMenuAcik(false);
               }}
               style={{
-                padding: '12px 16px',
+                padding: '10px 12px',
                 background:
                   seciliProje?.id === p.id
                     ? 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)'
@@ -2175,16 +2175,20 @@ export default function Dashboard() {
                     : 'none',
                 transition: 'all 0.2s ease',
                 display: 'flex',
-                alignItems: 'center',
-                gap: '10px'
+                flexDirection: 'column',
+                alignItems: 'stretch',
+                gap: '8px',
+                minWidth: 0
               }}
             >
-              <span style={{ flexShrink: 0 }}>🏢</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {p.ad}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0 }}>
+                <span style={{ flexShrink: 0 }}>🏢</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.25 }}>
+                  {p.ad}
+                </span>
+              </div>
               {kullaniciProfili?.rol === 'yonetici' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }} onClick={(event) => event.stopPropagation()}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', paddingLeft: '28px', flexWrap: 'wrap' }} onClick={(event) => event.stopPropagation()}>
                   <span
                     title={`Proje sırası: ${p.sira_no || projeler.indexOf(p) + 1}`}
                     style={{
