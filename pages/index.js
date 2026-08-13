@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabase';
 
@@ -25,7 +25,6 @@ export default function Dashboard() {
   const [butceDuzenlenenId, setButceDuzenlenenId] = useState(null);
   const [maliyetDuzenlenenId, setMaliyetDuzenlenenId] = useState(null);
   const [aktifSekme, setAktifSekme] = useState('ozet');
-  const [mobilMenuAcik, setMobilMenuAcik] = useState(false);
 
   const cariFormBaslangic = {
     ad: '',
@@ -44,6 +43,25 @@ export default function Dashboard() {
   const [cariArama, setCariArama] = useState('');
   const [cariAktifFiltre, setCariAktifFiltre] = useState('aktif');
   const [cariDetayId, setCariDetayId] = useState(null);
+
+  // KULLANICI YÖNETİMİ
+  const [kullaniciProfili, setKullaniciProfili] = useState(null);
+  const [kullanicilar, setKullanicilar] = useState([]);
+  const [kullaniciYetkileri, setKullaniciYetkileri] = useState([]);
+  const [kullaniciYukleniyor, setKullaniciYukleniyor] = useState(false);
+  const [kullaniciForm, setKullaniciForm] = useState({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
+  const [seciliKullaniciId, setSeciliKullaniciId] = useState(null);
+  const [seciliKullaniciProjeIds, setSeciliKullaniciProjeIds] = useState([]);
+
+  // EXCEL'DEN TOPLU AKTARIM
+  const [excelAktarimAcik, setExcelAktarimAcik] = useState(false);
+  const [excelAktarimSatirlari, setExcelAktarimSatirlari] = useState([]);
+  const [excelAktarimHatalari, setExcelAktarimHatalari] = useState([]);
+  const [excelAktarimDosyaAdi, setExcelAktarimDosyaAdi] = useState('');
+  const [excelAktarimYukleniyor, setExcelAktarimYukleniyor] = useState(false);
+  const [excelAktarimSonuc, setExcelAktarimSonuc] = useState(null);
+  const [mobilMenuAcik, setMobilMenuAcik] = useState(false);
+  const excelDosyaRef = useRef(null);
 
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
@@ -162,6 +180,13 @@ export default function Dashboard() {
       }
 
       if (mounted) {
+        const { data: profil } = await supabase
+          .from('kullanici_profilleri')
+          .select('*')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        setKullaniciProfili(profil || null);
         setIsClient(true);
         await projeleriGetir();
       }
@@ -185,6 +210,26 @@ export default function Dashboard() {
   async function projeleriGetir() {
     setHata('');
 
+    const { data: userResult } = await supabase.auth.getUser();
+    const user = userResult?.user;
+
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+
+    const { data: profil } = await supabase
+      .from('kullanici_profilleri')
+      .select('rol, aktif')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profil && profil.aktif === false) {
+      await supabase.auth.signOut();
+      router.replace('/login');
+      return;
+    }
+
     const { data, error } = await supabase
       .from('projeler')
       .select('*')
@@ -196,14 +241,38 @@ export default function Dashboard() {
       return;
     }
 
-    if (data) {
-      setProjeler(data);
+    let izinliProjeler = data || [];
 
-      if (data.length > 0 && !seciliProje) {
-        setSeciliProje(data[0]);
+    if (profil?.rol !== 'yonetici') {
+      const { data: yetkiler, error: yetkiError } = await supabase
+        .from('kullanici_proje_yetkileri')
+        .select('proje_id')
+        .eq('kullanici_id', user.id);
+
+      if (yetkiError) {
+        console.error('Proje yetkileri alınamadı:', yetkiError);
+        setHata('Proje yetkileri yüklenemedi: ' + yetkiError.message);
+        return;
       }
+
+      const izinliIdler = new Set((yetkiler || []).map((y) => Number(y.proje_id)));
+      izinliProjeler = izinliProjeler.filter((p) => izinliIdler.has(Number(p.id)));
     }
+
+    setProjeler(izinliProjeler);
+
+    if (izinliProjeler.length === 0) {
+      setSeciliProje(null);
+      setHata('Bu kullanıcıya atanmış bir proje bulunmuyor.');
+      return;
+    }
+
+    setSeciliProje((prev) => {
+      if (prev && izinliProjeler.some((p) => Number(p.id) === Number(prev.id))) return prev;
+      return izinliProjeler[0];
+    });
   }
+
 
   // GELİR VE GİDERLERİ GETİR
   async function verileriGetir() {
@@ -279,6 +348,177 @@ export default function Dashboard() {
     setHakedisler(hd || []);
     setProjeButceleri(pb || []);
     setProjeMaliyetleri(pm || []);
+  }
+
+  // KULLANICI YÖNETİMİ
+  async function kullanicilariGetir() {
+    setKullaniciYukleniyor(true);
+    setHata('');
+
+    const { data: profil } = await supabase
+      .from('kullanici_profilleri')
+      .select('*')
+      .eq('id', (await supabase.auth.getUser()).data.user?.id)
+      .maybeSingle();
+
+    setKullaniciProfili(profil || null);
+
+    if (profil?.rol !== 'yonetici') {
+      setKullaniciYukleniyor(false);
+      setHata('Kullanıcı yönetimi sadece yöneticilere açıktır.');
+      return;
+    }
+
+    const [kullaniciSonuc, yetkiSonuc] = await Promise.all([
+      supabase.from('kullanici_profilleri').select('*').order('ad_soyad', { ascending: true }),
+      supabase.from('kullanici_proje_yetkileri').select('id, kullanici_id, proje_id').order('id', { ascending: true })
+    ]);
+
+    if (kullaniciSonuc.error) {
+      setHata('Kullanıcılar yüklenemedi: ' + kullaniciSonuc.error.message);
+      setKullaniciYukleniyor(false);
+      return;
+    }
+
+    if (yetkiSonuc.error) {
+      setHata('Proje yetkileri yüklenemedi: ' + yetkiSonuc.error.message);
+      setKullaniciYukleniyor(false);
+      return;
+    }
+
+    setKullanicilar(kullaniciSonuc.data || []);
+    setKullaniciYetkileri(yetkiSonuc.data || []);
+    setKullaniciYukleniyor(false);
+  }
+
+  async function kullaniciProfiliOlustur(event) {
+    event.preventDefault();
+
+    if (kullaniciProfili?.rol !== 'yonetici') {
+      setHata('Bu işlem sadece yöneticilere açıktır.');
+      return;
+    }
+
+    const email = kullaniciForm.email.trim().toLowerCase();
+    const adSoyad = kullaniciForm.ad_soyad.trim();
+
+    if (!email || !adSoyad) {
+      setHata('E-posta ve ad soyad zorunludur.');
+      return;
+    }
+
+    setHata('');
+    setMesaj('');
+
+    const { data, error } = await supabase.rpc('yonetici_kullanici_profili_ekle', {
+      p_email: email,
+      p_ad_soyad: adSoyad,
+      p_rol: kullaniciForm.rol,
+      p_aktif: kullaniciForm.aktif
+    });
+
+    if (error) {
+      setHata('Kullanıcı eklenemedi: ' + error.message);
+      return;
+    }
+
+    setKullaniciForm({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
+    setMesaj(data?.mesaj || 'Kullanıcı profili başarıyla oluşturuldu.');
+    await kullanicilariGetir();
+  }
+
+  function kullaniciDuzenle(profil) {
+    setSeciliKullaniciId(profil.id);
+    setKullaniciForm({
+      email: profil.email || '',
+      ad_soyad: profil.ad_soyad || '',
+      rol: profil.rol || 'personel',
+      aktif: profil.aktif !== false
+    });
+
+    const yetkiler = kullaniciYetkileri
+      .filter((y) => y.kullanici_id === profil.id)
+      .map((y) => Number(y.proje_id));
+
+    setSeciliKullaniciProjeIds(yetkiler);
+    setHata('');
+    setMesaj('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function kullaniciKaydet() {
+    if (!seciliKullaniciId || kullaniciProfili?.rol !== 'yonetici') return;
+
+    setHata('');
+    setMesaj('');
+
+    const { error } = await supabase
+      .from('kullanici_profilleri')
+      .update({
+        ad_soyad: kullaniciForm.ad_soyad.trim(),
+        rol: kullaniciForm.rol,
+        aktif: kullaniciForm.aktif,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', seciliKullaniciId);
+
+    if (error) {
+      setHata('Kullanıcı güncellenemedi: ' + error.message);
+      return;
+    }
+
+    const mevcut = kullaniciYetkileri.filter((y) => y.kullanici_id === seciliKullaniciId);
+    const seciliSet = new Set(seciliKullaniciProjeIds.map(Number));
+
+    const silinecekler = mevcut.filter((y) => !seciliSet.has(Number(y.proje_id)));
+    if (silinecekler.length > 0) {
+      const { error: silError } = await supabase
+        .from('kullanici_proje_yetkileri')
+        .delete()
+        .in('id', silinecekler.map((y) => y.id));
+
+      if (silError) {
+        setHata('Proje yetkileri güncellenemedi: ' + silError.message);
+        return;
+      }
+    }
+
+    const mevcutSet = new Set(mevcut.map((y) => Number(y.proje_id)));
+    const eklenecekler = [...seciliSet]
+      .filter((projeId) => !mevcutSet.has(projeId))
+      .map((projeId) => ({ kullanici_id: seciliKullaniciId, proje_id: projeId }));
+
+    if (eklenecekler.length > 0) {
+      const { error: ekleError } = await supabase
+        .from('kullanici_proje_yetkileri')
+        .insert(eklenecekler);
+
+      if (ekleError) {
+        setHata('Proje yetkileri eklenemedi: ' + ekleError.message);
+        return;
+      }
+    }
+
+    setSeciliKullaniciId(null);
+    setSeciliKullaniciProjeIds([]);
+    setKullaniciForm({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
+    setMesaj('Kullanıcı ve proje yetkileri güncellendi.');
+    await kullanicilariGetir();
+  }
+
+  function kullaniciDuzenlemeyiIptalEt() {
+    setSeciliKullaniciId(null);
+    setSeciliKullaniciProjeIds([]);
+    setKullaniciForm({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
+    setMesaj('');
+    setHata('');
+  }
+
+  function kullaniciProjeYetkisiDegistir(projeId) {
+    setSeciliKullaniciProjeIds((prev) => {
+      const id = Number(projeId);
+      return prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+    });
   }
 
   // YENİ PROJE EKLE
@@ -1042,6 +1282,179 @@ export default function Dashboard() {
     setHata('');
   }
 
+  // EXCEL'DEN TOPLU AKTARIM
+  const excelBaslikEslesmeleri = {
+    tarih: ['tarih', 'işlem tarihi', 'islem tarihi', 'date'],
+    oge: ['öğe / firma / kişi', 'öğe', 'oge / firma / kisi', 'oge', 'firma', 'firma adı', 'firma adi', 'kişi', 'kisi', 'taraf'],
+    makbuz_no: ['makbuz no', 'makbuz numarası', 'makbuz numarasi', 'makbuz'],
+    fatura_no: ['fatura no', 'fatura numarası', 'fatura numarasi', 'fatura'],
+    kategori: ['kategori', 'gider kategorisi', 'gelir kategorisi'],
+    aciklama: ['açıklama', 'aciklama', 'not', 'notlar', 'detay'],
+    tutar: ['tutar', 'tutar (₺)', 'tutar tl', 'bedel', 'miktar', 'amount', 'fiyat'],
+    odeme_kaynagi: ['ödeme kaynağı', 'odeme kaynagi', 'ödeyen kim', 'odeyen kim', 'ödeme kaynağı / ödeyen', 'kaynak']
+  };
+
+  function excelBaslikNormalize(deger) {
+    return String(deger ?? '')
+      .trim()
+      .toLocaleLowerCase('tr-TR')
+      .replace(/\u0307/g, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ');
+  }
+
+  function excelTarihCevir(deger) {
+    if (deger === null || deger === undefined || deger === '') return '';
+    if (deger instanceof Date && !Number.isNaN(deger.getTime())) {
+      return `${deger.getFullYear()}-${String(deger.getMonth()+1).padStart(2,'0')}-${String(deger.getDate()).padStart(2,'0')}`;
+    }
+    if (typeof deger === 'number' && deger > 20000 && deger < 60000) {
+      const d = XLSX.SSF.parse_date_code(deger);
+      if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+    }
+    const metin = String(deger).trim();
+    const iso = metin.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (iso) return `${iso[1]}-${String(iso[2]).padStart(2,'0')}-${String(iso[3]).padStart(2,'0')}`;
+    const tr = metin.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+    if (tr) return `${tr[3]}-${String(tr[2]).padStart(2,'0')}-${String(tr[1]).padStart(2,'0')}`;
+    return '';
+  }
+
+  function excelTutarCevir(deger) {
+    if (typeof deger === 'number') return deger;
+    let metin = String(deger ?? '').trim().replace(/₺|TL|TRY/gi, '').replace(/\s/g, '');
+    if (!metin) return NaN;
+    if (metin.includes(',') && metin.includes('.')) {
+      if (metin.lastIndexOf(',') > metin.lastIndexOf('.')) metin = metin.replace(/\./g, '').replace(',', '.');
+      else metin = metin.replace(/,/g, '');
+    } else if (metin.includes(',')) {
+      metin = metin.replace(',', '.');
+    }
+    return Number(metin.replace(/[^0-9.-]/g, ''));
+  }
+
+  function excelSatirDegeri(satir, alan) {
+    const anahtarlar = excelBaslikEslesmeleri[alan] || [];
+    const bulunan = Object.keys(satir).find((baslik) => anahtarlar.includes(excelBaslikNormalize(baslik)));
+    return bulunan ? satir[bulunan] : '';
+  }
+
+  async function excelDosyasiSecildi(event) {
+    const dosya = event.target.files?.[0];
+    if (!dosya) return;
+    setHata('');
+    setMesaj('');
+    setExcelAktarimSonuc(null);
+    setExcelAktarimDosyaAdi(dosya.name);
+    setExcelAktarimYukleniyor(true);
+
+    try {
+      const buffer = await dosya.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const hamSatirlar = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+      if (!hamSatirlar.length) throw new Error('Excel dosyasında veri bulunan satır bulunamadı.');
+
+      const tip = aktifSekme === 'giderler' ? 'Gider' : 'Gelir';
+      const mevcut = tip === 'Gider' ? harcamalar : gelirler;
+      const mevcutAnahtarlar = new Set(mevcut.map((i) => `${i.tarih}|${i.oge}|${Number(i.tutar || 0).toFixed(2)}|${i.fatura_no || ''}`));
+      const hatalar = [];
+      const kayitlar = [];
+      const tekrarlar = [];
+
+      hamSatirlar.forEach((satir, index) => {
+        const satirNo = index + 2;
+        const tarih = excelTarihCevir(excelSatirDegeri(satir, 'tarih'));
+        const oge = String(excelSatirDegeri(satir, 'oge') ?? '').trim();
+        const kategori = String(excelSatirDegeri(satir, 'kategori') ?? '').trim();
+        const aciklama = String(excelSatirDegeri(satir, 'aciklama') ?? '').trim();
+        const tutar = excelTutarCevir(excelSatirDegeri(satir, 'tutar'));
+        const makbuz_no = String(excelSatirDegeri(satir, 'makbuz_no') ?? '').trim();
+        const fatura_no = String(excelSatirDegeri(satir, 'fatura_no') ?? '').trim();
+        const odeme_kaynagi = String(excelSatirDegeri(satir, 'odeme_kaynagi') ?? '').trim() || 'Kasa';
+
+        if (!tarih || !/^\d{4}-\d{2}-\d{2}$/.test(tarih)) { hatalar.push(`Satır ${satirNo}: Geçerli tarih bulunamadı.`); return; }
+        if (!oge) { hatalar.push(`Satır ${satirNo}: Öğe / Firma / Kişi boş.`); return; }
+        if (!kategori) { hatalar.push(`Satır ${satirNo}: Kategori boş.`); return; }
+        if (!Number.isFinite(tutar) || tutar <= 0) { hatalar.push(`Satır ${satirNo}: Geçerli ve 0'dan büyük tutar bulunamadı.`); return; }
+
+        const anahtar = `${tarih}|${oge}|${Number(tutar).toFixed(2)}|${fatura_no}`;
+        if (mevcutAnahtarlar.has(anahtar)) { tekrarlar.push(satirNo); return; }
+        if (kayitlar.some((i) => `${i.tarih}|${i.oge}|${Number(i.tutar).toFixed(2)}|${i.fatura_no}` === anahtar)) { tekrarlar.push(satirNo); return; }
+
+        kayitlar.push({
+          proje_id: seciliProje.id,
+          oge,
+          makbuz_no,
+          fatura_no,
+          tarih,
+          kategori,
+          aciklama,
+          tutar,
+          ...(tip === 'Gider' ? { odeme_kaynagi } : {})
+        });
+      });
+
+      setExcelAktarimSatirlari(kayitlar);
+      setExcelAktarimHatalari(hatalar);
+      setExcelAktarimSonuc({ tip, toplam: hamSatirlar.length, aktarilabilir: kayitlar.length, tekrar: tekrarlar.length });
+    } catch (error) {
+      setExcelAktarimSatirlari([]);
+      setExcelAktarimHatalari([error.message || 'Excel okunamadı.']);
+      setExcelAktarimSonuc(null);
+    } finally {
+      setExcelAktarimYukleniyor(false);
+      event.target.value = '';
+    }
+  }
+
+  async function excelTopluAktar() {
+    if (!seciliProje || !excelAktarimSatirlari.length) return;
+    setExcelAktarimYukleniyor(true);
+    setHata('');
+    setMesaj('');
+    try {
+      const tablo = excelAktarimSonuc?.tip === 'Gelir' ? 'gelirler' : 'harcamalar';
+      const batchSize = 200;
+      for (let i = 0; i < excelAktarimSatirlari.length; i += batchSize) {
+        const parca = excelAktarimSatirlari.slice(i, i + batchSize);
+        const { error } = await supabase.from(tablo).insert(parca);
+        if (error) throw error;
+      }
+      const adet = excelAktarimSatirlari.length;
+      setMesaj(`${adet} ${excelAktarimSonuc?.tip?.toLocaleLowerCase('tr-TR')} kaydı Excel'den başarıyla aktarıldı.`);
+      setExcelAktarimSatirlari([]);
+      setExcelAktarimHatalari([]);
+      setExcelAktarimSonuc(null);
+      setExcelAktarimDosyaAdi('');
+      setExcelAktarimAcik(false);
+      await verileriGetir();
+    } catch (error) {
+      setHata('Excel aktarımı sırasında hata oluştu: ' + error.message);
+    } finally {
+      setExcelAktarimYukleniyor(false);
+    }
+  }
+
+  function excelAktarimPenceresiniAc() {
+    if (!seciliProje) return setHata('Önce bir proje seçmelisiniz.');
+    if (!['gelirler', 'giderler'].includes(aktifSekme)) return setHata('Excel toplu aktarımı için Gelir veya Gider sekmesini seçin.');
+    setExcelAktarimAcik(true);
+    setExcelAktarimSatirlari([]);
+    setExcelAktarimHatalari([]);
+    setExcelAktarimSonuc(null);
+    setExcelAktarimDosyaAdi('');
+  }
+
+  function excelAktarimKapat() {
+    if (excelAktarimYukleniyor) return;
+    setExcelAktarimAcik(false);
+    setExcelAktarimSatirlari([]);
+    setExcelAktarimHatalari([]);
+    setExcelAktarimSonuc(null);
+    setExcelAktarimDosyaAdi('');
+  }
+
   // LOGO
   const SIDEBAR_LOGO = '/logos/esmahan-light.png';
   const PDF_LOGO = '/logos/esmahan-dark.png';
@@ -1289,90 +1702,16 @@ export default function Dashboard() {
         .santiye-tabs button { flex: 0 0 auto; white-space: nowrap; }
         .santiye-main table { min-width: 760px; }
         .santiye-main input, .santiye-main select, .santiye-main textarea, .santiye-main button { max-width: 100%; }
-        .mobil-menu-buton, .mobil-menu-kapat, .mobil-menu-overlay { display: none; }
-        @media (max-width: 768px) {
-          .santiye-app { flex-direction: row !important; min-height: 100vh !important; }
-          .santiye-sidebar {
-            width: 300px !important; min-height: 100vh !important; padding: 18px !important;
-            position: fixed !important; left: 0 !important; top: 0 !important; bottom: 0 !important;
-            z-index: 1001 !important; transform: translateX(-105%) !important; transition: transform .25s ease !important;
-            overflow-y: auto !important; box-shadow: 8px 0 25px rgba(0,0,0,.18) !important;
-          }
-          .santiye-sidebar.mobil-acik { transform: translateX(0) !important; }
-          .santiye-sidebar > ul { flex-direction: column !important; overflow: visible !important; flex: 1 !important; }
-          .santiye-sidebar > ul li { flex: 0 0 auto !important; white-space: normal !important; }
-          .santiye-sidebar form { margin-top: 20px !important; padding-top: 16px !important; }
-          .mobil-menu-buton {
-            display: flex !important; align-items: center !important; justify-content: center !important;
-            width: 44px !important; height: 44px !important; border: 0 !important; border-radius: 10px !important;
-            background: #0f172a !important; color: #fff !important; font-size: 24px !important;
-            cursor: pointer !important; flex: 0 0 auto !important; box-shadow: 0 3px 10px rgba(15,23,42,.18) !important;
-          }
-          .mobil-menu-kapat {
-            display: flex !important; position: absolute !important; right: 14px !important; top: 14px !important;
-            width: 38px !important; height: 38px !important; align-items: center !important; justify-content: center !important;
-            border: 1px solid #334155 !important; border-radius: 9px !important; background: #1e293b !important;
-            color: #fff !important; font-size: 20px !important; cursor: pointer !important;
-          }
-          .mobil-menu-overlay {
-            display: block !important; position: fixed !important; inset: 0 !important; background: rgba(2,6,23,.5) !important;
-            z-index: 1000 !important; backdrop-filter: blur(1px);
-          }
-          .santiye-main { width: 100% !important; max-width: none !important; padding: 68px 12px 12px !important; overflow-x: hidden !important; }
-          .santiye-main h1 { font-size: 22px !important; line-height: 1.2 !important; }
-          .santiye-main h2 { font-size: 18px !important; }
-          .santiye-main [style*="display: flex"] { flex-wrap: wrap !important; }
-          .santiye-main [style*="display: grid"] { grid-template-columns: 1fr !important; }
-          .santiye-main .santiye-tabs { flex-wrap: nowrap !important; }
-          .santiye-main table { font-size: 12px !important; }
-          .santiye-main th, .santiye-main td { padding: 9px 8px !important; }
-
-          /* Gelir/Gider: mobilde yatay tablo yerine kart */
-          .gelir-gider-tablosu { min-width: 0 !important; width: 100% !important; }
-          .gelir-gider-tablosu thead { display: none !important; }
-          .gelir-gider-tablosu tbody { display: block !important; }
-          .gelir-gider-tablosu tbody tr {
-            display: block !important; background: #fff !important; margin-bottom: 12px !important;
-            border: 1px solid #e2e8f0 !important; border-radius: 12px !important;
-            padding: 8px 12px !important; box-shadow: 0 2px 8px rgba(15,23,42,.04) !important;
-          }
-          .gelir-gider-tablosu tbody td {
-            display: flex !important; align-items: flex-start !important; justify-content: space-between !important;
-            gap: 12px !important; width: 100% !important; padding: 9px 2px !important;
-            border-bottom: 1px solid #f1f5f9 !important; white-space: normal !important; text-align: right !important;
-          }
-          .gelir-gider-tablosu tbody td:last-child { border-bottom: 0 !important; }
-          .gelir-gider-tablosu tbody td::before {
-            font-weight: 700 !important; color: #64748b !important; text-align: left !important; flex: 0 0 auto !important;
-          }
-          .gelir-gider-tablosu.gelirler tbody td:nth-child(1)::before { content: 'Tarih'; }
-          .gelir-gider-tablosu.gelirler tbody td:nth-child(2)::before { content: 'Öğe / Firma'; }
-          .gelir-gider-tablosu.gelirler tbody td:nth-child(3)::before { content: 'Makbuz No'; }
-          .gelir-gider-tablosu.gelirler tbody td:nth-child(4)::before { content: 'Fatura No'; }
-          .gelir-gider-tablosu.gelirler tbody td:nth-child(5)::before { content: 'Kategori'; }
-          .gelir-gider-tablosu.gelirler tbody td:nth-child(6)::before { content: 'Açıklama'; }
-          .gelir-gider-tablosu.gelirler tbody td:nth-child(7)::before { content: 'Tutar'; }
-          .gelir-gider-tablosu.gelirler tbody td:nth-child(8)::before { content: 'İşlem'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(1)::before { content: 'Tarih'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(2)::before { content: 'Öğe / Firma'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(3)::before { content: 'Makbuz No'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(4)::before { content: 'Fatura No'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(5)::before { content: 'Kategori'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(6)::before { content: 'Ödeme Kaynağı'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(7)::before { content: 'Açıklama'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(8)::before { content: 'Tutar'; }
-          .gelir-gider-tablosu.giderler tbody td:nth-child(9)::before { content: 'İşlem'; }
-          .gelir-gider-tablosu tbody td:last-child > div { justify-content: flex-end !important; }
-          .gelir-gider-tablosu tbody td:nth-last-child(2) { font-size: 16px !important; }
-          .gelir-gider-tablosu tbody tr td[colspan] { display: block !important; text-align: center !important; }
-          .gelir-gider-tablosu tbody tr td[colspan]::before { display: none !important; }
-        }
-        @media (max-width: 480px) {
-          .santiye-main { padding: 10px !important; }
-          .santiye-main button { min-height: 42px; }
-          .gelir-gider-tablosu tbody td { font-size: 12px !important; }
-        }
-      `}</style>
+       >
+         <button
+           type="button"
+           className="mobil-menu-butonu"
+           aria-label="Menüyü aç"
+           onClick={() => setMobilMenuAcik(true)}
+         >
+           ☰
+         </button>
+         {!seciliProje ? (      `}</style>
       <div
       className="santiye-app"
       style={{
@@ -1383,8 +1722,13 @@ export default function Dashboard() {
       }}
     >
       {/* SOL MENÜ */}
+      {mobilMenuAcik && (
+        <div className="mobil-menu-overlay" onClick={() => setMobilMenuAcik(false)}>
+          <button type="button" aria-label="Menüyü kapat" />
+        </div>
+      )}
       <div
-        className={`santiye-sidebar ${mobilMenuAcik ? 'mobil-acik' : ''}`}
+        className={`santiye-sidebar${mobilMenuAcik ? ' mobil-acik' : ''}`}
         style={{
           width: '300px',
           backgroundColor: '#0f172a',
@@ -1395,14 +1739,6 @@ export default function Dashboard() {
           boxShadow: '4px 0 10px rgba(0,0,0,0.05)'
         }}
       >
-        <button
-          type="button"
-          className="mobil-menu-kapat"
-          aria-label="Menüyü kapat"
-          onClick={() => setMobilMenuAcik(false)}
-        >
-          ×
-        </button>
         <div
           style={{
             display: 'flex',
@@ -1490,9 +1826,9 @@ export default function Dashboard() {
               key={p.id}
               onClick={() => {
                 setSeciliProje(p);
-                setMobilMenuAcik(false);
                 setMesaj('');
                 setHata('');
+                setMobilMenuAcik(false);
               }}
               style={{
                 padding: '12px 16px',
@@ -1601,6 +1937,9 @@ export default function Dashboard() {
           maxWidth: '1400px'
         }}
       >
+        <button type="button" className="mobil-menu-butonu" aria-label="Menüyü aç" onClick={() => setMobilMenuAcik(true)}>
+          ☰
+        </button>
         {!seciliProje ? (
           <div
             style={{
@@ -1736,7 +2075,10 @@ export default function Dashboard() {
                   id: 'maliyet',
                   label: '🏗️ Proje Maliyeti',
                   color: '#2563eb'
-                }
+                },
+                ...(kullaniciProfili?.rol === 'yonetici'
+                  ? [{ id: 'kullanicilar', label: '⚙️ Kullanıcı Yönetimi', color: '#475569' }]
+                  : [])
               ].map((s) => (
                 <button
                   key={s.id}
@@ -1759,6 +2101,9 @@ export default function Dashboard() {
                     setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() });
                     setMesaj('');
                     setHata('');
+                    if (s.id === 'kullanicilar') {
+                      kullanicilariGetir();
+                    }
                   }}
                   style={{
                     padding: '12px 24px',
@@ -2107,6 +2452,99 @@ export default function Dashboard() {
                   )}
                 </div>
 
+              </div>
+            ) : aktifSekme === 'kullanicilar' ? (
+              /* KULLANICI YÖNETİMİ */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(15,23,42,0.04)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
+                    <div>
+                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '19px' }}>⚙️ Kullanıcı Yönetimi</h3>
+                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Kullanıcı rolleri ve proje erişimlerini yönetin.</p>
+                    </div>
+                    <button type="button" onClick={kullanicilariGetir} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', background: '#fff', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>↻ Yenile</button>
+                  </div>
+
+                  <div style={{ padding: '12px 14px', marginBottom: '18px', borderRadius: '10px', background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: '13px' }}>
+                    Yeni kişinin önce <b>Supabase → Authentication → Users</b> bölümünde hesabı oluşturulmuş olmalıdır. Buradan hesabın profilini ve proje yetkilerini tanımlıyoruz.
+                  </div>
+
+                  <form onSubmit={kullaniciProfiliOlustur} style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1.2, minWidth: '220px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>E-POSTA</label>
+                      <input type="email" required value={kullaniciForm.email} disabled={!!seciliKullaniciId} onChange={(e) => setKullaniciForm({ ...kullaniciForm, email: e.target.value })} placeholder="Auth kullanıcısının e-posta adresi" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: seciliKullaniciId ? '#f1f5f9' : '#fff' }} />
+                    </div>
+                    <div style={{ flex: 1.2, minWidth: '200px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>AD SOYAD</label>
+                      <input required value={kullaniciForm.ad_soyad} onChange={(e) => setKullaniciForm({ ...kullaniciForm, ad_soyad: e.target.value })} placeholder="Örn: Hatice Feyza Danışman" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '170px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>ROL</label>
+                      <select value={kullaniciForm.rol} onChange={(e) => setKullaniciForm({ ...kullaniciForm, rol: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff' }}>
+                        <option value="yonetici">Yönetici</option>
+                        <option value="proje_yoneticisi">Proje Yöneticisi</option>
+                        <option value="muhasebe">Muhasebe</option>
+                        <option value="santiye">Şantiye</option>
+                        <option value="personel">Personel</option>
+                      </select>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '100px', fontSize: '13px', fontWeight: '700', color: '#334155' }}>
+                      <input type="checkbox" checked={kullaniciForm.aktif} onChange={(e) => setKullaniciForm({ ...kullaniciForm, aktif: e.target.checked })} /> Aktif
+                    </label>
+                    <div style={{ width: '100%', display: 'flex', gap: '8px' }}>
+                      <button type="submit" style={{ flex: 1, padding: '11px', background: seciliKullaniciId ? '#2563eb' : '#10b981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>
+                        {seciliKullaniciId ? '✓ Kullanıcıyı Güncelle' : '+ Kullanıcı Profilini Ekle'}
+                      </button>
+                      {seciliKullaniciId && <button type="button" onClick={kullaniciDuzenlemeyiIptalEt} style={{ padding: '11px 18px', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>İptal</button>}
+                    </div>
+                  </form>
+
+                  <div style={{ marginTop: '24px', overflowX: 'auto' }}>
+                    {kullaniciYukleniyor ? (
+                      <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>Kullanıcılar yükleniyor...</div>
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '820px' }}>
+                        <thead><tr style={{ background: '#f8fafc', color: '#475569', textAlign: 'left' }}>
+                          <th style={{ padding: '12px' }}>Kullanıcı</th><th style={{ padding: '12px' }}>Rol</th><th style={{ padding: '12px' }}>Durum</th><th style={{ padding: '12px' }}>Proje Yetkileri</th><th style={{ padding: '12px', textAlign: 'center' }}>İşlem</th>
+                        </tr></thead>
+                        <tbody>
+                          {kullanicilar.map((k) => {
+                            const yetkiliProjeler = kullaniciYetkileri.filter((y) => y.kullanici_id === k.id).map((y) => projeler.find((p) => Number(p.id) === Number(y.proje_id))?.ad).filter(Boolean);
+                            return (
+                              <tr key={k.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '13px 12px' }}><div style={{ fontWeight: '700', color: '#0f172a' }}>{k.ad_soyad || 'İsimsiz Kullanıcı'}</div><div style={{ color: '#64748b', fontSize: '12px', marginTop: '3px' }}>{k.email || '-'}</div></td>
+                                <td style={{ padding: '13px 12px' }}><span style={{ padding: '5px 9px', borderRadius: '6px', background: '#eef2ff', color: '#4338ca', fontSize: '12px', fontWeight: '700' }}>{{ yonetici: 'Yönetici', proje_yoneticisi: 'Proje Yöneticisi', muhasebe: 'Muhasebe', santiye: 'Şantiye', personel: 'Personel' }[k.rol] || k.rol}</span></td>
+                                <td style={{ padding: '13px 12px', color: k.aktif ? '#166534' : '#991b1b', fontWeight: '700', fontSize: '12px' }}>{k.aktif ? '● Aktif' : '● Pasif'}</td>
+                                <td style={{ padding: '13px 12px', color: '#475569', fontSize: '13px' }}>{k.rol === 'yonetici' ? 'Tüm projeler' : (yetkiliProjeler.length ? yetkiliProjeler.join(', ') : 'Proje atanmadı')}</td>
+                                <td style={{ padding: '13px 12px', textAlign: 'center' }}><button type="button" onClick={() => kullaniciDuzenle(k)} style={{ padding: '7px 11px', background: '#fef3c7', color: '#92400e', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer' }}>Düzenle</button></td>
+                              </tr>
+                            );
+                          })}
+                          {kullanicilar.length === 0 && <tr><td colSpan={5} style={{ padding: '35px', textAlign: 'center', color: '#94a3b8' }}>Kullanıcı profili bulunamadı.</td></tr>}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+
+                {seciliKullaniciId && (
+                  <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(15,23,42,0.04)' }}>
+                    <h3 style={{ margin: '0 0 6px', color: '#0f172a', fontSize: '18px' }}>🏗️ Proje Erişimleri</h3>
+                    <p style={{ margin: '0 0 18px', color: '#64748b', fontSize: '13px' }}>Bu kullanıcının erişebileceği projeleri seçin.</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
+                      {projeler.map((p) => {
+                        const secili = seciliKullaniciProjeIds.includes(Number(p.id));
+                        return <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', border: secili ? '1px solid #93c5fd' : '1px solid #e2e8f0', background: secili ? '#eff6ff' : '#fff', borderRadius: '10px', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={secili} onChange={() => kullaniciProjeYetkisiDegistir(p.id)} />
+                          <span style={{ fontWeight: '600', color: '#334155' }}>{p.ad}</span>
+                        </label>;
+                      })}
+                    </div>
+                    <div style={{ marginTop: '18px', display: 'flex', justifyContent: 'flex-end' }}>
+                      <button type="button" onClick={kullaniciKaydet} style={{ padding: '11px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>✓ Kullanıcı ve Yetkileri Kaydet</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : aktifSekme === 'finans' ? (
               /* ALACAK / BORÇ */
@@ -3028,7 +3466,14 @@ export default function Dashboard() {
                     {gorunenToplam.toLocaleString('tr-TR')}
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={excelAktarimPenceresiniAc}
+                      style={{ padding: '9px 13px', borderRadius: '8px', border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}
+                    >
+                      📥 Excel'den Toplu Aktar
+                    </button>
                     <button
                       type="button"
                       onClick={excelAktar}
@@ -3046,10 +3491,39 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* TABLO */}
-                <div style={{ overflowX: 'auto' }}>
+                                {/* MOBİL KART GÖRÜNÜMÜ */}
+                <div className="mobil-kart-liste">
+                  {gorunenListe.map((i) => (
+                    <div className="mobil-kart" key={`mobil-${i.id}`}>
+                      <div className="mobil-kart-ust">
+                        <div>
+                          <div className="mobil-kart-oge">{i.oge || '-'}</div>
+                          <div className="mobil-kart-tarih">{i.tarih || '-'}</div>
+                        </div>
+                        <div className="mobil-kart-tutar" style={{ color: aktifSekme === 'gelirler' ? '#059669' : '#dc2626' }}>
+                          ₺{Number(i.tutar || 0).toLocaleString('tr-TR')}
+                        </div>
+                      </div>
+                      <div className="mobil-kart-detay">
+                        <div className="mobil-kart-alan"><span className="mobil-kart-etiket">Kategori</span><span className="mobil-kart-deger">{i.kategori || '-'}</span></div>
+                        {aktifSekme === 'giderler' && <div className="mobil-kart-alan"><span className="mobil-kart-etiket">Ödeme Kaynağı</span><span className="mobil-kart-deger">{i.odeme_kaynagi || 'Kasa'}</span></div>}
+                        <div className="mobil-kart-alan"><span className="mobil-kart-etiket">Makbuz No</span><span className="mobil-kart-deger">{i.makbuz_no || '-'}</span></div>
+                        <div className="mobil-kart-alan"><span className="mobil-kart-etiket">Fatura No</span><span className="mobil-kart-deger">{i.fatura_no || '-'}</span></div>
+                        <div className="mobil-kart-alan" style={{ gridColumn: '1 / -1' }}><span className="mobil-kart-etiket">Açıklama</span><span className="mobil-kart-deger">{i.aciklama || '-'}</span></div>
+                      </div>
+                      <div className="mobil-kart-islem">
+                        <button type="button" onClick={() => duzenle(i)} style={{ padding: '7px 10px', backgroundColor: '#fef3c7', color: '#92400e', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>✏️ Düzenle</button>
+                        <button type="button" onClick={() => sil(i.id)} style={{ padding: '7px 10px', backgroundColor: '#fee2e2', color: '#991b1b', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>🗑️ Sil</button>
+                      </div>
+                    </div>
+                  ))}
+                  {gorunenListe.length === 0 && <div style={{ padding: '35px 15px', textAlign: 'center', color: '#94a3b8', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px' }}>Kayıt bulunamadı.</div>}
+                </div>
+
+{/* TABLO */}
+                <div className="desktop-table-wrap" style={{ overflowX: 'auto' }}>
                   <table
-                    className={`gelir-gider-tablosu ${aktifSekme === 'giderler' ? 'giderler' : 'gelirler'}`}
+                    className="desktop-data-table"
                     style={{
                       width: '100%',
                       borderCollapse: 'collapse',
@@ -3292,6 +3766,85 @@ export default function Dashboard() {
         )}
       </div>
       </div>
+
+      {excelAktarimAcik && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 9999,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }}
+        >
+          <div
+            style={{
+              width: 'min(900px, 100%)', maxHeight: '90vh', overflowY: 'auto', background: '#fff',
+              borderRadius: '18px', padding: '24px', boxShadow: '0 20px 60px rgba(0,0,0,0.25)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ margin: 0, color: '#0f172a', fontSize: '22px' }}>📥 Excel'den Toplu Aktar</h2>
+                <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: '13px' }}>
+                  {aktifSekme === 'giderler' ? 'Gider' : 'Gelir'} kayıtlarını seçili projeye aktar. İlk sayfa okunur.
+                </p>
+              </div>
+              <button type="button" onClick={excelAktarimKapat} style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', padding: '8px 11px', cursor: 'pointer', fontSize: '18px' }}>×</button>
+            </div>
+
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+                <input ref={excelDosyaRef} type="file" accept=".xlsx,.xls,.csv" onChange={excelDosyasiSecildi} style={{ display: 'none' }} />
+                <button type="button" disabled={excelAktarimYukleniyor} onClick={() => excelDosyaRef.current?.click()} style={{ padding: '11px 16px', border: 'none', borderRadius: '9px', background: '#2563eb', color: '#fff', fontWeight: '700', cursor: 'pointer' }}>
+                  {excelAktarimYukleniyor ? '⏳ İşleniyor...' : '📁 Excel Dosyası Seç'}
+                </button>
+                {excelAktarimDosyaAdi && <span style={{ color: '#334155', fontSize: '13px', fontWeight: '600' }}>{excelAktarimDosyaAdi}</span>}
+              </div>
+              <div style={{ marginTop: '12px', color: '#64748b', fontSize: '12px', lineHeight: 1.6 }}>
+                Desteklenen sütunlar: <b>Tarih, Öğe/Firma/Kişi, Makbuz No, Fatura No, Kategori, Açıklama, Tutar</b>. Giderlerde ayrıca <b>Ödeme Kaynağı / Ödeyen Kim</b>. Sütun adları birebir aynı olmak zorunda değildir.
+              </div>
+            </div>
+
+            {excelAktarimSonuc && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+                <div style={{ padding: '14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>TOPLAM SATIR</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a' }}>{excelAktarimSonuc.toplam}</div></div>
+                <div style={{ padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#166534', fontWeight: '700' }}>AKTARILABİLİR</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#059669' }}>{excelAktarimSonuc.aktarilabilir}</div></div>
+                <div style={{ padding: '14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#9a3412', fontWeight: '700' }}>ZATEN VAR</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#ea580c' }}>{excelAktarimSonuc.tekrar}</div></div>
+                <div style={{ padding: '14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#991b1b', fontWeight: '700' }}>HATALI</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#dc2626' }}>{excelAktarimHatalari.length}</div></div>
+              </div>
+            )}
+
+            {excelAktarimHatalari.length > 0 && (
+              <div style={{ marginBottom: '16px', padding: '14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px', maxHeight: '180px', overflowY: 'auto' }}>
+                <div style={{ fontWeight: '800', color: '#9a3412', marginBottom: '8px' }}>⚠️ Aktarılmayan satırlar</div>
+                {excelAktarimHatalari.slice(0, 50).map((e, i) => <div key={i} style={{ fontSize: '12px', color: '#7c2d12', marginBottom: '4px' }}>{e}</div>)}
+                {excelAktarimHatalari.length > 50 && <div style={{ fontSize: '12px', color: '#7c2d12' }}>... ve {excelAktarimHatalari.length - 50} hata daha.</div>}
+              </div>
+            )}
+
+            {excelAktarimSatirlari.length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>Önizleme — ilk 10 kayıt</div>
+                <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '720px' }}>
+                    <thead><tr style={{ background: '#f8fafc', color: '#475569' }}>
+                      <th style={{ padding: '9px', textAlign: 'left' }}>Tarih</th><th style={{ padding: '9px', textAlign: 'left' }}>Öğe</th><th style={{ padding: '9px', textAlign: 'left' }}>Kategori</th><th style={{ padding: '9px', textAlign: 'left' }}>Açıklama</th><th style={{ padding: '9px', textAlign: 'right' }}>Tutar</th>
+                    </tr></thead>
+                    <tbody>{excelAktarimSatirlari.slice(0, 10).map((i, idx) => <tr key={idx} style={{ borderTop: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '9px' }}>{i.tarih}</td><td style={{ padding: '9px' }}>{i.oge}</td><td style={{ padding: '9px' }}>{i.kategori}</td><td style={{ padding: '9px' }}>{i.aciklama || '-'}</td><td style={{ padding: '9px', textAlign: 'right', fontWeight: '700' }}>₺{Number(i.tutar).toLocaleString('tr-TR')}</td>
+                    </tr>)}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+              <button type="button" onClick={excelAktarimKapat} disabled={excelAktarimYukleniyor} style={{ padding: '11px 18px', border: '1px solid #cbd5e1', borderRadius: '9px', background: '#fff', color: '#475569', fontWeight: '700', cursor: 'pointer' }}>İptal</button>
+              <button type="button" onClick={excelTopluAktar} disabled={excelAktarimYukleniyor || excelAktarimSatirlari.length === 0} style={{ padding: '11px 18px', border: 'none', borderRadius: '9px', background: excelAktarimSatirlari.length ? '#059669' : '#94a3b8', color: '#fff', fontWeight: '800', cursor: excelAktarimSatirlari.length ? 'pointer' : 'not-allowed' }}>
+                {excelAktarimYukleniyor ? '⏳ Aktarılıyor...' : `✅ ${excelAktarimSatirlari.length} Kaydı Aktar`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
