@@ -878,7 +878,30 @@ export default function Dashboard() {
   const kategoriSecenekleri =
     aktifSekme === 'gelirler'
       ? ['Hakediş', 'Daire Satışı', 'Kapora', 'Kira', 'Diğer']
-      : ['Malzeme', 'İşçilik', 'Taşeron', 'Belediye', 'Harç', 'Noter', 'Avukat', 'Nakliye', 'Vergi', 'SGK', 'Elektrik / Su / Doğalgaz', 'Diğer'];
+      : [
+          'Kaba İnşaat Malzeme',
+          'Kaba İnşaat İşçilik',
+          'İnce İşçilik Malzeme',
+          'İnce İşçilik',
+          'Elektrik',
+          'Mekanik',
+          'Harita',
+          'Proje / Mühendislik',
+          'Hafriyat',
+          'Nakliye',
+          'Asansör',
+          'İzolasyon',
+          'Çatı',
+          'Peyzaj',
+          'Şantiye Giderleri',
+          'Belediye / Ruhsat / Harç',
+          'Vergi / SGK',
+          'Hukuk / Noter',
+          'Sigorta',
+          'Finansman',
+          'Pazarlama / Reklam',
+          'Diğer'
+        ];
 
   function filtreleriTemizle() {
     setFiltreKategori('');
