@@ -44,6 +44,15 @@ export default function Dashboard() {
   const [cariAktifFiltre, setCariAktifFiltre] = useState('aktif');
   const [cariDetayId, setCariDetayId] = useState(null);
 
+  // KULLANICI YÖNETİMİ
+  const [kullaniciProfili, setKullaniciProfili] = useState(null);
+  const [kullanicilar, setKullanicilar] = useState([]);
+  const [kullaniciYetkileri, setKullaniciYetkileri] = useState([]);
+  const [kullaniciYukleniyor, setKullaniciYukleniyor] = useState(false);
+  const [kullaniciForm, setKullaniciForm] = useState({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
+  const [seciliKullaniciId, setSeciliKullaniciId] = useState(null);
+  const [seciliKullaniciProjeIds, setSeciliKullaniciProjeIds] = useState([]);
+
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
 
@@ -161,6 +170,13 @@ export default function Dashboard() {
       }
 
       if (mounted) {
+        const { data: profil } = await supabase
+          .from('kullanici_profilleri')
+          .select('*')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        setKullaniciProfili(profil || null);
         setIsClient(true);
         await projeleriGetir();
       }
@@ -184,6 +200,26 @@ export default function Dashboard() {
   async function projeleriGetir() {
     setHata('');
 
+    const { data: userResult } = await supabase.auth.getUser();
+    const user = userResult?.user;
+
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+
+    const { data: profil } = await supabase
+      .from('kullanici_profilleri')
+      .select('rol, aktif')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profil && profil.aktif === false) {
+      await supabase.auth.signOut();
+      router.replace('/login');
+      return;
+    }
+
     const { data, error } = await supabase
       .from('projeler')
       .select('*')
@@ -195,14 +231,38 @@ export default function Dashboard() {
       return;
     }
 
-    if (data) {
-      setProjeler(data);
+    let izinliProjeler = data || [];
 
-      if (data.length > 0 && !seciliProje) {
-        setSeciliProje(data[0]);
+    if (profil?.rol !== 'yonetici') {
+      const { data: yetkiler, error: yetkiError } = await supabase
+        .from('kullanici_proje_yetkileri')
+        .select('proje_id')
+        .eq('kullanici_id', user.id);
+
+      if (yetkiError) {
+        console.error('Proje yetkileri alınamadı:', yetkiError);
+        setHata('Proje yetkileri yüklenemedi: ' + yetkiError.message);
+        return;
       }
+
+      const izinliIdler = new Set((yetkiler || []).map((y) => Number(y.proje_id)));
+      izinliProjeler = izinliProjeler.filter((p) => izinliIdler.has(Number(p.id)));
     }
+
+    setProjeler(izinliProjeler);
+
+    if (izinliProjeler.length === 0) {
+      setSeciliProje(null);
+      setHata('Bu kullanıcıya atanmış bir proje bulunmuyor.');
+      return;
+    }
+
+    setSeciliProje((prev) => {
+      if (prev && izinliProjeler.some((p) => Number(p.id) === Number(prev.id))) return prev;
+      return izinliProjeler[0];
+    });
   }
+
 
   // GELİR VE GİDERLERİ GETİR
   async function verileriGetir() {
@@ -278,6 +338,177 @@ export default function Dashboard() {
     setHakedisler(hd || []);
     setProjeButceleri(pb || []);
     setProjeMaliyetleri(pm || []);
+  }
+
+  // KULLANICI YÖNETİMİ
+  async function kullanicilariGetir() {
+    setKullaniciYukleniyor(true);
+    setHata('');
+
+    const { data: profil } = await supabase
+      .from('kullanici_profilleri')
+      .select('*')
+      .eq('id', (await supabase.auth.getUser()).data.user?.id)
+      .maybeSingle();
+
+    setKullaniciProfili(profil || null);
+
+    if (profil?.rol !== 'yonetici') {
+      setKullaniciYukleniyor(false);
+      setHata('Kullanıcı yönetimi sadece yöneticilere açıktır.');
+      return;
+    }
+
+    const [kullaniciSonuc, yetkiSonuc] = await Promise.all([
+      supabase.from('kullanici_profilleri').select('*').order('ad_soyad', { ascending: true }),
+      supabase.from('kullanici_proje_yetkileri').select('id, kullanici_id, proje_id').order('id', { ascending: true })
+    ]);
+
+    if (kullaniciSonuc.error) {
+      setHata('Kullanıcılar yüklenemedi: ' + kullaniciSonuc.error.message);
+      setKullaniciYukleniyor(false);
+      return;
+    }
+
+    if (yetkiSonuc.error) {
+      setHata('Proje yetkileri yüklenemedi: ' + yetkiSonuc.error.message);
+      setKullaniciYukleniyor(false);
+      return;
+    }
+
+    setKullanicilar(kullaniciSonuc.data || []);
+    setKullaniciYetkileri(yetkiSonuc.data || []);
+    setKullaniciYukleniyor(false);
+  }
+
+  async function kullaniciProfiliOlustur(event) {
+    event.preventDefault();
+
+    if (kullaniciProfili?.rol !== 'yonetici') {
+      setHata('Bu işlem sadece yöneticilere açıktır.');
+      return;
+    }
+
+    const email = kullaniciForm.email.trim().toLowerCase();
+    const adSoyad = kullaniciForm.ad_soyad.trim();
+
+    if (!email || !adSoyad) {
+      setHata('E-posta ve ad soyad zorunludur.');
+      return;
+    }
+
+    setHata('');
+    setMesaj('');
+
+    const { data, error } = await supabase.rpc('yonetici_kullanici_profili_ekle', {
+      p_email: email,
+      p_ad_soyad: adSoyad,
+      p_rol: kullaniciForm.rol,
+      p_aktif: kullaniciForm.aktif
+    });
+
+    if (error) {
+      setHata('Kullanıcı eklenemedi: ' + error.message);
+      return;
+    }
+
+    setKullaniciForm({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
+    setMesaj(data?.mesaj || 'Kullanıcı profili başarıyla oluşturuldu.');
+    await kullanicilariGetir();
+  }
+
+  function kullaniciDuzenle(profil) {
+    setSeciliKullaniciId(profil.id);
+    setKullaniciForm({
+      email: profil.email || '',
+      ad_soyad: profil.ad_soyad || '',
+      rol: profil.rol || 'personel',
+      aktif: profil.aktif !== false
+    });
+
+    const yetkiler = kullaniciYetkileri
+      .filter((y) => y.kullanici_id === profil.id)
+      .map((y) => Number(y.proje_id));
+
+    setSeciliKullaniciProjeIds(yetkiler);
+    setHata('');
+    setMesaj('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function kullaniciKaydet() {
+    if (!seciliKullaniciId || kullaniciProfili?.rol !== 'yonetici') return;
+
+    setHata('');
+    setMesaj('');
+
+    const { error } = await supabase
+      .from('kullanici_profilleri')
+      .update({
+        ad_soyad: kullaniciForm.ad_soyad.trim(),
+        rol: kullaniciForm.rol,
+        aktif: kullaniciForm.aktif,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', seciliKullaniciId);
+
+    if (error) {
+      setHata('Kullanıcı güncellenemedi: ' + error.message);
+      return;
+    }
+
+    const mevcut = kullaniciYetkileri.filter((y) => y.kullanici_id === seciliKullaniciId);
+    const seciliSet = new Set(seciliKullaniciProjeIds.map(Number));
+
+    const silinecekler = mevcut.filter((y) => !seciliSet.has(Number(y.proje_id)));
+    if (silinecekler.length > 0) {
+      const { error: silError } = await supabase
+        .from('kullanici_proje_yetkileri')
+        .delete()
+        .in('id', silinecekler.map((y) => y.id));
+
+      if (silError) {
+        setHata('Proje yetkileri güncellenemedi: ' + silError.message);
+        return;
+      }
+    }
+
+    const mevcutSet = new Set(mevcut.map((y) => Number(y.proje_id)));
+    const eklenecekler = [...seciliSet]
+      .filter((projeId) => !mevcutSet.has(projeId))
+      .map((projeId) => ({ kullanici_id: seciliKullaniciId, proje_id: projeId }));
+
+    if (eklenecekler.length > 0) {
+      const { error: ekleError } = await supabase
+        .from('kullanici_proje_yetkileri')
+        .insert(eklenecekler);
+
+      if (ekleError) {
+        setHata('Proje yetkileri eklenemedi: ' + ekleError.message);
+        return;
+      }
+    }
+
+    setSeciliKullaniciId(null);
+    setSeciliKullaniciProjeIds([]);
+    setKullaniciForm({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
+    setMesaj('Kullanıcı ve proje yetkileri güncellendi.');
+    await kullanicilariGetir();
+  }
+
+  function kullaniciDuzenlemeyiIptalEt() {
+    setSeciliKullaniciId(null);
+    setSeciliKullaniciProjeIds([]);
+    setKullaniciForm({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
+    setMesaj('');
+    setHata('');
+  }
+
+  function kullaniciProjeYetkisiDegistir(projeId) {
+    setSeciliKullaniciProjeIds((prev) => {
+      const id = Number(projeId);
+      return prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+    });
   }
 
   // YENİ PROJE EKLE
@@ -1663,7 +1894,10 @@ export default function Dashboard() {
                   id: 'maliyet',
                   label: '🏗️ Proje Maliyeti',
                   color: '#2563eb'
-                }
+                },
+                ...(kullaniciProfili?.rol === 'yonetici'
+                  ? [{ id: 'kullanicilar', label: '⚙️ Kullanıcı Yönetimi', color: '#475569' }]
+                  : [])
               ].map((s) => (
                 <button
                   key={s.id}
@@ -1686,6 +1920,9 @@ export default function Dashboard() {
                     setFinansForm({ ...finansFormBaslangic, tarih: bugununTarihi() });
                     setMesaj('');
                     setHata('');
+                    if (s.id === 'kullanicilar') {
+                      kullanicilariGetir();
+                    }
                   }}
                   style={{
                     padding: '12px 24px',
@@ -2034,6 +2271,99 @@ export default function Dashboard() {
                   )}
                 </div>
 
+              </div>
+            ) : aktifSekme === 'kullanicilar' ? (
+              /* KULLANICI YÖNETİMİ */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(15,23,42,0.04)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
+                    <div>
+                      <h3 style={{ margin: 0, color: '#0f172a', fontSize: '19px' }}>⚙️ Kullanıcı Yönetimi</h3>
+                      <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Kullanıcı rolleri ve proje erişimlerini yönetin.</p>
+                    </div>
+                    <button type="button" onClick={kullanicilariGetir} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', background: '#fff', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>↻ Yenile</button>
+                  </div>
+
+                  <div style={{ padding: '12px 14px', marginBottom: '18px', borderRadius: '10px', background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: '13px' }}>
+                    Yeni kişinin önce <b>Supabase → Authentication → Users</b> bölümünde hesabı oluşturulmuş olmalıdır. Buradan hesabın profilini ve proje yetkilerini tanımlıyoruz.
+                  </div>
+
+                  <form onSubmit={kullaniciProfiliOlustur} style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1.2, minWidth: '220px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>E-POSTA</label>
+                      <input type="email" required value={kullaniciForm.email} disabled={!!seciliKullaniciId} onChange={(e) => setKullaniciForm({ ...kullaniciForm, email: e.target.value })} placeholder="Auth kullanıcısının e-posta adresi" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: seciliKullaniciId ? '#f1f5f9' : '#fff' }} />
+                    </div>
+                    <div style={{ flex: 1.2, minWidth: '200px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>AD SOYAD</label>
+                      <input required value={kullaniciForm.ad_soyad} onChange={(e) => setKullaniciForm({ ...kullaniciForm, ad_soyad: e.target.value })} placeholder="Örn: Hatice Feyza Danışman" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '170px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>ROL</label>
+                      <select value={kullaniciForm.rol} onChange={(e) => setKullaniciForm({ ...kullaniciForm, rol: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff' }}>
+                        <option value="yonetici">Yönetici</option>
+                        <option value="proje_yoneticisi">Proje Yöneticisi</option>
+                        <option value="muhasebe">Muhasebe</option>
+                        <option value="santiye">Şantiye</option>
+                        <option value="personel">Personel</option>
+                      </select>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '100px', fontSize: '13px', fontWeight: '700', color: '#334155' }}>
+                      <input type="checkbox" checked={kullaniciForm.aktif} onChange={(e) => setKullaniciForm({ ...kullaniciForm, aktif: e.target.checked })} /> Aktif
+                    </label>
+                    <div style={{ width: '100%', display: 'flex', gap: '8px' }}>
+                      <button type="submit" style={{ flex: 1, padding: '11px', background: seciliKullaniciId ? '#2563eb' : '#10b981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>
+                        {seciliKullaniciId ? '✓ Kullanıcıyı Güncelle' : '+ Kullanıcı Profilini Ekle'}
+                      </button>
+                      {seciliKullaniciId && <button type="button" onClick={kullaniciDuzenlemeyiIptalEt} style={{ padding: '11px 18px', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>İptal</button>}
+                    </div>
+                  </form>
+
+                  <div style={{ marginTop: '24px', overflowX: 'auto' }}>
+                    {kullaniciYukleniyor ? (
+                      <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>Kullanıcılar yükleniyor...</div>
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '820px' }}>
+                        <thead><tr style={{ background: '#f8fafc', color: '#475569', textAlign: 'left' }}>
+                          <th style={{ padding: '12px' }}>Kullanıcı</th><th style={{ padding: '12px' }}>Rol</th><th style={{ padding: '12px' }}>Durum</th><th style={{ padding: '12px' }}>Proje Yetkileri</th><th style={{ padding: '12px', textAlign: 'center' }}>İşlem</th>
+                        </tr></thead>
+                        <tbody>
+                          {kullanicilar.map((k) => {
+                            const yetkiliProjeler = kullaniciYetkileri.filter((y) => y.kullanici_id === k.id).map((y) => projeler.find((p) => Number(p.id) === Number(y.proje_id))?.ad).filter(Boolean);
+                            return (
+                              <tr key={k.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '13px 12px' }}><div style={{ fontWeight: '700', color: '#0f172a' }}>{k.ad_soyad || 'İsimsiz Kullanıcı'}</div><div style={{ color: '#64748b', fontSize: '12px', marginTop: '3px' }}>{k.email || '-'}</div></td>
+                                <td style={{ padding: '13px 12px' }}><span style={{ padding: '5px 9px', borderRadius: '6px', background: '#eef2ff', color: '#4338ca', fontSize: '12px', fontWeight: '700' }}>{{ yonetici: 'Yönetici', proje_yoneticisi: 'Proje Yöneticisi', muhasebe: 'Muhasebe', santiye: 'Şantiye', personel: 'Personel' }[k.rol] || k.rol}</span></td>
+                                <td style={{ padding: '13px 12px', color: k.aktif ? '#166534' : '#991b1b', fontWeight: '700', fontSize: '12px' }}>{k.aktif ? '● Aktif' : '● Pasif'}</td>
+                                <td style={{ padding: '13px 12px', color: '#475569', fontSize: '13px' }}>{k.rol === 'yonetici' ? 'Tüm projeler' : (yetkiliProjeler.length ? yetkiliProjeler.join(', ') : 'Proje atanmadı')}</td>
+                                <td style={{ padding: '13px 12px', textAlign: 'center' }}><button type="button" onClick={() => kullaniciDuzenle(k)} style={{ padding: '7px 11px', background: '#fef3c7', color: '#92400e', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer' }}>Düzenle</button></td>
+                              </tr>
+                            );
+                          })}
+                          {kullanicilar.length === 0 && <tr><td colSpan={5} style={{ padding: '35px', textAlign: 'center', color: '#94a3b8' }}>Kullanıcı profili bulunamadı.</td></tr>}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+
+                {seciliKullaniciId && (
+                  <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(15,23,42,0.04)' }}>
+                    <h3 style={{ margin: '0 0 6px', color: '#0f172a', fontSize: '18px' }}>🏗️ Proje Erişimleri</h3>
+                    <p style={{ margin: '0 0 18px', color: '#64748b', fontSize: '13px' }}>Bu kullanıcının erişebileceği projeleri seçin.</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
+                      {projeler.map((p) => {
+                        const secili = seciliKullaniciProjeIds.includes(Number(p.id));
+                        return <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', border: secili ? '1px solid #93c5fd' : '1px solid #e2e8f0', background: secili ? '#eff6ff' : '#fff', borderRadius: '10px', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={secili} onChange={() => kullaniciProjeYetkisiDegistir(p.id)} />
+                          <span style={{ fontWeight: '600', color: '#334155' }}>{p.ad}</span>
+                        </label>;
+                      })}
+                    </div>
+                    <div style={{ marginTop: '18px', display: 'flex', justifyContent: 'flex-end' }}>
+                      <button type="button" onClick={kullaniciKaydet} style={{ padding: '11px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>✓ Kullanıcı ve Yetkileri Kaydet</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : aktifSekme === 'finans' ? (
               /* ALACAK / BORÇ */
