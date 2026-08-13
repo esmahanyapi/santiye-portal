@@ -75,6 +75,8 @@ export default function Dashboard() {
   // GELİR / GİDER LİSTE SIRALAMA
   const [siralaAlan, setSiralaAlan] = useState('tarih');
   const [siralaYon, setSiralaYon] = useState('desc');
+  const [listeSayfasi, setListeSayfasi] = useState(1);
+  const SAYFA_BASI_KAYIT = 50;
 
   function siralamayiDegistir(alan) {
     if (siralaAlan === alan) {
@@ -1115,6 +1117,17 @@ export default function Dashboard() {
   });
 
   const gorunenListe = siraliListeOlustur(filtrelenmisListe);
+  const toplamSayfa = Math.max(1, Math.ceil(gorunenListe.length / SAYFA_BASI_KAYIT));
+  const baslangicIndex = (listeSayfasi - 1) * SAYFA_BASI_KAYIT;
+  const sayfaliListe = gorunenListe.slice(baslangicIndex, baslangicIndex + SAYFA_BASI_KAYIT);
+
+  useEffect(() => {
+    setListeSayfasi(1);
+  }, [seciliProje?.id, aktifSekme, filtreKategori, filtreAciklama, filtreBaslangic, filtreBitis, siralaAlan, siralaYon]);
+
+  useEffect(() => {
+    if (listeSayfasi > toplamSayfa) setListeSayfasi(toplamSayfa);
+  }, [listeSayfasi, toplamSayfa]);
 
   const kategoriSecenekleri =
     aktifSekme === 'gelirler'
@@ -1922,6 +1935,12 @@ export default function Dashboard() {
           padding: '24px',
           display: 'flex',
           flexDirection: 'column',
+          height: '100vh',
+          boxSizing: 'border-box',
+          position: 'sticky',
+          top: 0,
+          alignSelf: 'flex-start',
+          overflow: 'hidden',
           boxShadow: '4px 0 10px rgba(0,0,0,0.05)'
         }}
       >
@@ -3679,7 +3698,7 @@ export default function Dashboard() {
 
                                 {/* MOBİL KART GÖRÜNÜMÜ */}
                 <div className="mobil-kart-liste">
-                  {gorunenListe.map((i) => (
+                  {sayfaliListe.map((i) => (
                     <div className="mobil-kart" key={`mobil-${i.id}`}>
                       <div className="mobil-kart-ust">
                         <div>
@@ -3800,7 +3819,7 @@ export default function Dashboard() {
                     </thead>
 
                     <tbody>
-                      {gorunenListe.map((i) => (
+                      {sayfaliListe.map((i) => (
                         <tr
                           key={i.id}
                           style={{
@@ -3946,6 +3965,67 @@ export default function Dashboard() {
                     </tbody>
                   </table>
                 </div>
+
+                {gorunenListe.length > 0 && (
+                  <div
+                    className="liste-sayfalama"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      flexWrap: 'wrap',
+                      padding: '14px 4px 2px'
+                    }}
+                  >
+                    <div style={{ color: '#64748b', fontSize: '13px', fontWeight: '600' }}>
+                      {baslangicIndex + 1}-{Math.min(baslangicIndex + SAYFA_BASI_KAYIT, gorunenListe.length)} / {gorunenListe.length} kayıt
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => setListeSayfasi((s) => Math.max(1, s - 1))}
+                        disabled={listeSayfasi === 1}
+                        style={{
+                          minWidth: '36px', height: '36px', border: '1px solid #cbd5e1', borderRadius: '8px',
+                          background: listeSayfasi === 1 ? '#f1f5f9' : '#fff',
+                          color: listeSayfasi === 1 ? '#94a3b8' : '#0f172a', cursor: listeSayfasi === 1 ? 'default' : 'pointer',
+                          fontWeight: '800'
+                        }}
+                      >‹</button>
+
+                      {Array.from({ length: toplamSayfa }, (_, idx) => idx + 1).map((sayfa) => (
+                        <button
+                          type="button"
+                          key={sayfa}
+                          onClick={() => setListeSayfasi(sayfa)}
+                          style={{
+                            minWidth: '36px', height: '36px', border: `1px solid ${listeSayfasi === sayfa ? '#2563eb' : '#cbd5e1'}`,
+                            borderRadius: '8px', background: listeSayfasi === sayfa ? '#2563eb' : '#fff',
+                            color: listeSayfasi === sayfa ? '#fff' : '#334155', cursor: 'pointer', fontWeight: '800'
+                          }}
+                        >{sayfa}</button>
+                      ))}
+
+                      <button
+                        type="button"
+                        onClick={() => setListeSayfasi((s) => Math.min(toplamSayfa, s + 1))}
+                        disabled={listeSayfasi === toplamSayfa}
+                        style={{
+                          minWidth: '36px', height: '36px', border: '1px solid #cbd5e1', borderRadius: '8px',
+                          background: listeSayfasi === toplamSayfa ? '#f1f5f9' : '#fff',
+                          color: listeSayfasi === toplamSayfa ? '#94a3b8' : '#0f172a', cursor: listeSayfasi === toplamSayfa ? 'default' : 'pointer',
+                          fontWeight: '800'
+                        }}
+                      >›</button>
+                    </div>
+
+                    <div style={{ color: '#64748b', fontSize: '12px' }}>
+                      Sayfa {listeSayfasi} / {toplamSayfa} · 50 kayıt/sayfa
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>
