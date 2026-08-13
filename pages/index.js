@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabase';
 
@@ -52,6 +52,15 @@ export default function Dashboard() {
   const [kullaniciForm, setKullaniciForm] = useState({ email: '', ad_soyad: '', rol: 'personel', aktif: true });
   const [seciliKullaniciId, setSeciliKullaniciId] = useState(null);
   const [seciliKullaniciProjeIds, setSeciliKullaniciProjeIds] = useState([]);
+
+  // EXCEL'DEN TOPLU AKTARIM
+  const [excelAktarimAcik, setExcelAktarimAcik] = useState(false);
+  const [excelAktarimSatirlari, setExcelAktarimSatirlari] = useState([]);
+  const [excelAktarimHatalari, setExcelAktarimHatalari] = useState([]);
+  const [excelAktarimDosyaAdi, setExcelAktarimDosyaAdi] = useState('');
+  const [excelAktarimYukleniyor, setExcelAktarimYukleniyor] = useState(false);
+  const [excelAktarimSonuc, setExcelAktarimSonuc] = useState(null);
+  const excelDosyaRef = useRef(null);
 
   const [filtreKategori, setFiltreKategori] = useState('');
   const [filtreAciklama, setFiltreAciklama] = useState('');
@@ -1270,6 +1279,179 @@ export default function Dashboard() {
     XLSX.writeFile(workbook, `${dosyaAdiOlustur()}_${sekmeAdi}.xlsx`);
     setMesaj(`${gorunenListe.length} kayıt Excel'e aktarıldı.`);
     setHata('');
+  }
+
+  // EXCEL'DEN TOPLU AKTARIM
+  const excelBaslikEslesmeleri = {
+    tarih: ['tarih', 'işlem tarihi', 'islem tarihi', 'date'],
+    oge: ['öğe / firma / kişi', 'öğe', 'oge / firma / kisi', 'oge', 'firma', 'firma adı', 'firma adi', 'kişi', 'kisi', 'taraf'],
+    makbuz_no: ['makbuz no', 'makbuz numarası', 'makbuz numarasi', 'makbuz'],
+    fatura_no: ['fatura no', 'fatura numarası', 'fatura numarasi', 'fatura'],
+    kategori: ['kategori', 'gider kategorisi', 'gelir kategorisi'],
+    aciklama: ['açıklama', 'aciklama', 'not', 'notlar', 'detay'],
+    tutar: ['tutar', 'tutar (₺)', 'tutar tl', 'bedel', 'miktar', 'amount', 'fiyat'],
+    odeme_kaynagi: ['ödeme kaynağı', 'odeme kaynagi', 'ödeyen kim', 'odeyen kim', 'ödeme kaynağı / ödeyen', 'kaynak']
+  };
+
+  function excelBaslikNormalize(deger) {
+    return String(deger ?? '')
+      .trim()
+      .toLocaleLowerCase('tr-TR')
+      .replace(/\u0307/g, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ');
+  }
+
+  function excelTarihCevir(deger) {
+    if (deger === null || deger === undefined || deger === '') return '';
+    if (deger instanceof Date && !Number.isNaN(deger.getTime())) {
+      return `${deger.getFullYear()}-${String(deger.getMonth()+1).padStart(2,'0')}-${String(deger.getDate()).padStart(2,'0')}`;
+    }
+    if (typeof deger === 'number' && deger > 20000 && deger < 60000) {
+      const d = XLSX.SSF.parse_date_code(deger);
+      if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+    }
+    const metin = String(deger).trim();
+    const iso = metin.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (iso) return `${iso[1]}-${String(iso[2]).padStart(2,'0')}-${String(iso[3]).padStart(2,'0')}`;
+    const tr = metin.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+    if (tr) return `${tr[3]}-${String(tr[2]).padStart(2,'0')}-${String(tr[1]).padStart(2,'0')}`;
+    return '';
+  }
+
+  function excelTutarCevir(deger) {
+    if (typeof deger === 'number') return deger;
+    let metin = String(deger ?? '').trim().replace(/₺|TL|TRY/gi, '').replace(/\s/g, '');
+    if (!metin) return NaN;
+    if (metin.includes(',') && metin.includes('.')) {
+      if (metin.lastIndexOf(',') > metin.lastIndexOf('.')) metin = metin.replace(/\./g, '').replace(',', '.');
+      else metin = metin.replace(/,/g, '');
+    } else if (metin.includes(',')) {
+      metin = metin.replace(',', '.');
+    }
+    return Number(metin.replace(/[^0-9.-]/g, ''));
+  }
+
+  function excelSatirDegeri(satir, alan) {
+    const anahtarlar = excelBaslikEslesmeleri[alan] || [];
+    const bulunan = Object.keys(satir).find((baslik) => anahtarlar.includes(excelBaslikNormalize(baslik)));
+    return bulunan ? satir[bulunan] : '';
+  }
+
+  async function excelDosyasiSecildi(event) {
+    const dosya = event.target.files?.[0];
+    if (!dosya) return;
+    setHata('');
+    setMesaj('');
+    setExcelAktarimSonuc(null);
+    setExcelAktarimDosyaAdi(dosya.name);
+    setExcelAktarimYukleniyor(true);
+
+    try {
+      const buffer = await dosya.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const hamSatirlar = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+      if (!hamSatirlar.length) throw new Error('Excel dosyasında veri bulunan satır bulunamadı.');
+
+      const tip = aktifSekme === 'giderler' ? 'Gider' : 'Gelir';
+      const mevcut = tip === 'Gider' ? harcamalar : gelirler;
+      const mevcutAnahtarlar = new Set(mevcut.map((i) => `${i.tarih}|${i.oge}|${Number(i.tutar || 0).toFixed(2)}|${i.fatura_no || ''}`));
+      const hatalar = [];
+      const kayitlar = [];
+      const tekrarlar = [];
+
+      hamSatirlar.forEach((satir, index) => {
+        const satirNo = index + 2;
+        const tarih = excelTarihCevir(excelSatirDegeri(satir, 'tarih'));
+        const oge = String(excelSatirDegeri(satir, 'oge') ?? '').trim();
+        const kategori = String(excelSatirDegeri(satir, 'kategori') ?? '').trim();
+        const aciklama = String(excelSatirDegeri(satir, 'aciklama') ?? '').trim();
+        const tutar = excelTutarCevir(excelSatirDegeri(satir, 'tutar'));
+        const makbuz_no = String(excelSatirDegeri(satir, 'makbuz_no') ?? '').trim();
+        const fatura_no = String(excelSatirDegeri(satir, 'fatura_no') ?? '').trim();
+        const odeme_kaynagi = String(excelSatirDegeri(satir, 'odeme_kaynagi') ?? '').trim() || 'Kasa';
+
+        if (!tarih || !/^\d{4}-\d{2}-\d{2}$/.test(tarih)) { hatalar.push(`Satır ${satirNo}: Geçerli tarih bulunamadı.`); return; }
+        if (!oge) { hatalar.push(`Satır ${satirNo}: Öğe / Firma / Kişi boş.`); return; }
+        if (!kategori) { hatalar.push(`Satır ${satirNo}: Kategori boş.`); return; }
+        if (!Number.isFinite(tutar) || tutar <= 0) { hatalar.push(`Satır ${satirNo}: Geçerli ve 0'dan büyük tutar bulunamadı.`); return; }
+
+        const anahtar = `${tarih}|${oge}|${Number(tutar).toFixed(2)}|${fatura_no}`;
+        if (mevcutAnahtarlar.has(anahtar)) { tekrarlar.push(satirNo); return; }
+        if (kayitlar.some((i) => `${i.tarih}|${i.oge}|${Number(i.tutar).toFixed(2)}|${i.fatura_no}` === anahtar)) { tekrarlar.push(satirNo); return; }
+
+        kayitlar.push({
+          proje_id: seciliProje.id,
+          oge,
+          makbuz_no,
+          fatura_no,
+          tarih,
+          kategori,
+          aciklama,
+          tutar,
+          ...(tip === 'Gider' ? { odeme_kaynagi } : {})
+        });
+      });
+
+      setExcelAktarimSatirlari(kayitlar);
+      setExcelAktarimHatalari(hatalar);
+      setExcelAktarimSonuc({ tip, toplam: hamSatirlar.length, aktarilabilir: kayitlar.length, tekrar: tekrarlar.length });
+    } catch (error) {
+      setExcelAktarimSatirlari([]);
+      setExcelAktarimHatalari([error.message || 'Excel okunamadı.']);
+      setExcelAktarimSonuc(null);
+    } finally {
+      setExcelAktarimYukleniyor(false);
+      event.target.value = '';
+    }
+  }
+
+  async function excelTopluAktar() {
+    if (!seciliProje || !excelAktarimSatirlari.length) return;
+    setExcelAktarimYukleniyor(true);
+    setHata('');
+    setMesaj('');
+    try {
+      const tablo = excelAktarimSonuc?.tip === 'Gelir' ? 'gelirler' : 'harcamalar';
+      const batchSize = 200;
+      for (let i = 0; i < excelAktarimSatirlari.length; i += batchSize) {
+        const parca = excelAktarimSatirlari.slice(i, i + batchSize);
+        const { error } = await supabase.from(tablo).insert(parca);
+        if (error) throw error;
+      }
+      const adet = excelAktarimSatirlari.length;
+      setMesaj(`${adet} ${excelAktarimSonuc?.tip?.toLocaleLowerCase('tr-TR')} kaydı Excel'den başarıyla aktarıldı.`);
+      setExcelAktarimSatirlari([]);
+      setExcelAktarimHatalari([]);
+      setExcelAktarimSonuc(null);
+      setExcelAktarimDosyaAdi('');
+      setExcelAktarimAcik(false);
+      await verileriGetir();
+    } catch (error) {
+      setHata('Excel aktarımı sırasında hata oluştu: ' + error.message);
+    } finally {
+      setExcelAktarimYukleniyor(false);
+    }
+  }
+
+  function excelAktarimPenceresiniAc() {
+    if (!seciliProje) return setHata('Önce bir proje seçmelisiniz.');
+    if (!['gelirler', 'giderler'].includes(aktifSekme)) return setHata('Excel toplu aktarımı için Gelir veya Gider sekmesini seçin.');
+    setExcelAktarimAcik(true);
+    setExcelAktarimSatirlari([]);
+    setExcelAktarimHatalari([]);
+    setExcelAktarimSonuc(null);
+    setExcelAktarimDosyaAdi('');
+  }
+
+  function excelAktarimKapat() {
+    if (excelAktarimYukleniyor) return;
+    setExcelAktarimAcik(false);
+    setExcelAktarimSatirlari([]);
+    setExcelAktarimHatalari([]);
+    setExcelAktarimSonuc(null);
+    setExcelAktarimDosyaAdi('');
   }
 
   // LOGO
@@ -3285,7 +3467,14 @@ export default function Dashboard() {
                     {gorunenToplam.toLocaleString('tr-TR')}
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={excelAktarimPenceresiniAc}
+                      style={{ padding: '9px 13px', borderRadius: '8px', border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}
+                    >
+                      📥 Excel'den Toplu Aktar
+                    </button>
                     <button
                       type="button"
                       onClick={excelAktar}
@@ -3548,6 +3737,85 @@ export default function Dashboard() {
         )}
       </div>
       </div>
+
+      {excelAktarimAcik && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 9999,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }}
+        >
+          <div
+            style={{
+              width: 'min(900px, 100%)', maxHeight: '90vh', overflowY: 'auto', background: '#fff',
+              borderRadius: '18px', padding: '24px', boxShadow: '0 20px 60px rgba(0,0,0,0.25)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ margin: 0, color: '#0f172a', fontSize: '22px' }}>📥 Excel'den Toplu Aktar</h2>
+                <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: '13px' }}>
+                  {aktifSekme === 'giderler' ? 'Gider' : 'Gelir'} kayıtlarını seçili projeye aktar. İlk sayfa okunur.
+                </p>
+              </div>
+              <button type="button" onClick={excelAktarimKapat} style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', padding: '8px 11px', cursor: 'pointer', fontSize: '18px' }}>×</button>
+            </div>
+
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+                <input ref={excelDosyaRef} type="file" accept=".xlsx,.xls,.csv" onChange={excelDosyasiSecildi} style={{ display: 'none' }} />
+                <button type="button" disabled={excelAktarimYukleniyor} onClick={() => excelDosyaRef.current?.click()} style={{ padding: '11px 16px', border: 'none', borderRadius: '9px', background: '#2563eb', color: '#fff', fontWeight: '700', cursor: 'pointer' }}>
+                  {excelAktarimYukleniyor ? '⏳ İşleniyor...' : '📁 Excel Dosyası Seç'}
+                </button>
+                {excelAktarimDosyaAdi && <span style={{ color: '#334155', fontSize: '13px', fontWeight: '600' }}>{excelAktarimDosyaAdi}</span>}
+              </div>
+              <div style={{ marginTop: '12px', color: '#64748b', fontSize: '12px', lineHeight: 1.6 }}>
+                Desteklenen sütunlar: <b>Tarih, Öğe/Firma/Kişi, Makbuz No, Fatura No, Kategori, Açıklama, Tutar</b>. Giderlerde ayrıca <b>Ödeme Kaynağı / Ödeyen Kim</b>. Sütun adları birebir aynı olmak zorunda değildir.
+              </div>
+            </div>
+
+            {excelAktarimSonuc && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+                <div style={{ padding: '14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>TOPLAM SATIR</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a' }}>{excelAktarimSonuc.toplam}</div></div>
+                <div style={{ padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#166534', fontWeight: '700' }}>AKTARILABİLİR</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#059669' }}>{excelAktarimSonuc.aktarilabilir}</div></div>
+                <div style={{ padding: '14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#9a3412', fontWeight: '700' }}>ZATEN VAR</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#ea580c' }}>{excelAktarimSonuc.tekrar}</div></div>
+                <div style={{ padding: '14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#991b1b', fontWeight: '700' }}>HATALI</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#dc2626' }}>{excelAktarimHatalari.length}</div></div>
+              </div>
+            )}
+
+            {excelAktarimHatalari.length > 0 && (
+              <div style={{ marginBottom: '16px', padding: '14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px', maxHeight: '180px', overflowY: 'auto' }}>
+                <div style={{ fontWeight: '800', color: '#9a3412', marginBottom: '8px' }}>⚠️ Aktarılmayan satırlar</div>
+                {excelAktarimHatalari.slice(0, 50).map((e, i) => <div key={i} style={{ fontSize: '12px', color: '#7c2d12', marginBottom: '4px' }}>{e}</div>)}
+                {excelAktarimHatalari.length > 50 && <div style={{ fontSize: '12px', color: '#7c2d12' }}>... ve {excelAktarimHatalari.length - 50} hata daha.</div>}
+              </div>
+            )}
+
+            {excelAktarimSatirlari.length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>Önizleme — ilk 10 kayıt</div>
+                <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '720px' }}>
+                    <thead><tr style={{ background: '#f8fafc', color: '#475569' }}>
+                      <th style={{ padding: '9px', textAlign: 'left' }}>Tarih</th><th style={{ padding: '9px', textAlign: 'left' }}>Öğe</th><th style={{ padding: '9px', textAlign: 'left' }}>Kategori</th><th style={{ padding: '9px', textAlign: 'left' }}>Açıklama</th><th style={{ padding: '9px', textAlign: 'right' }}>Tutar</th>
+                    </tr></thead>
+                    <tbody>{excelAktarimSatirlari.slice(0, 10).map((i, idx) => <tr key={idx} style={{ borderTop: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '9px' }}>{i.tarih}</td><td style={{ padding: '9px' }}>{i.oge}</td><td style={{ padding: '9px' }}>{i.kategori}</td><td style={{ padding: '9px' }}>{i.aciklama || '-'}</td><td style={{ padding: '9px', textAlign: 'right', fontWeight: '700' }}>₺{Number(i.tutar).toLocaleString('tr-TR')}</td>
+                    </tr>)}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+              <button type="button" onClick={excelAktarimKapat} disabled={excelAktarimYukleniyor} style={{ padding: '11px 18px', border: '1px solid #cbd5e1', borderRadius: '9px', background: '#fff', color: '#475569', fontWeight: '700', cursor: 'pointer' }}>İptal</button>
+              <button type="button" onClick={excelTopluAktar} disabled={excelAktarimYukleniyor || excelAktarimSatirlari.length === 0} style={{ padding: '11px 18px', border: 'none', borderRadius: '9px', background: excelAktarimSatirlari.length ? '#059669' : '#94a3b8', color: '#fff', fontWeight: '800', cursor: excelAktarimSatirlari.length ? 'pointer' : 'not-allowed' }}>
+                {excelAktarimYukleniyor ? '⏳ Aktarılıyor...' : `✅ ${excelAktarimSatirlari.length} Kaydı Aktar`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
