@@ -53,6 +53,43 @@ export default function Dashboard() {
   const [filtreBaslangic, setFiltreBaslangic] = useState('');
   const [filtreBitis, setFiltreBitis] = useState('');
 
+  // GELİR / GİDER LİSTE SIRALAMA
+  const [siralaAlan, setSiralaAlan] = useState('tarih');
+  const [siralaYon, setSiralaYon] = useState('desc');
+
+  function siralamayiDegistir(alan) {
+    if (siralaAlan === alan) {
+      setSiralaYon((yon) => (yon === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSiralaAlan(alan);
+      setSiralaYon(alan === 'tutar' ? 'desc' : 'asc');
+    }
+  }
+
+  function siralamaIkonu(alan) {
+    if (siralaAlan !== alan) return '↕';
+    return siralaYon === 'asc' ? '↑' : '↓';
+  }
+
+  function siraliListeOlustur(liste) {
+    return [...liste].sort((a, b) => {
+      let sonuc = 0;
+
+      if (siralaAlan === 'tutar') {
+        sonuc = Number(a.tutar || 0) - Number(b.tutar || 0);
+      } else {
+        const aDeger = String(a[siralaAlan] || '').trim().toLocaleLowerCase('tr-TR');
+        const bDeger = String(b[siralaAlan] || '').trim().toLocaleLowerCase('tr-TR');
+        sonuc = aDeger.localeCompare(bDeger, 'tr-TR', {
+          numeric: true,
+          sensitivity: 'base'
+        });
+      }
+
+      return siralaYon === 'asc' ? sonuc : -sonuc;
+    });
+  }
+
   const bugununTarihi = () => {
     const d = new Date();
     const yil = d.getFullYear();
@@ -824,7 +861,7 @@ export default function Dashboard() {
   const aktifListe =
     aktifSekme === 'gelirler' ? gelirler : aktifSekme === 'giderler' ? harcamalar : aktifSekme === 'finans' ? alacakBorclar : [];
 
-  const gorunenListe = aktifListe.filter((item) => {
+  const filtrelenmisListe = aktifListe.filter((item) => {
     const kategoriUygun =
       filtreKategori === '' ||
       item.kategori?.toLowerCase().includes(filtreKategori.toLowerCase());
@@ -835,6 +872,8 @@ export default function Dashboard() {
     const bitisUygun = filtreBitis === '' || (item.tarih || '') <= filtreBitis;
     return kategoriUygun && aciklamaUygun && baslangicUygun && bitisUygun;
   });
+
+  const gorunenListe = siraliListeOlustur(filtrelenmisListe);
 
   const kategoriSecenekleri =
     aktifSekme === 'gelirler'
@@ -2872,6 +2911,9 @@ export default function Dashboard() {
                     >
                       Filtreleri Temizle
                     </button>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                      Sıralama: başlıklara tıklayın
+                    </span>
                   </div>
 
                   <div
@@ -2928,11 +2970,25 @@ export default function Dashboard() {
                         }}
                       >
                         <th style={{ padding: '14px 12px' }}>
-                          Tarih
+                          <button
+                            type="button"
+                            onClick={() => siralamayiDegistir('tarih')}
+                            title="Tarihe göre sırala"
+                            style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: '700', color: 'inherit' }}
+                          >
+                            Tarih {siralamaIkonu('tarih')}
+                          </button>
                         </th>
 
                         <th style={{ padding: '14px 12px' }}>
-                          Öğe
+                          <button
+                            type="button"
+                            onClick={() => siralamayiDegistir('oge')}
+                            title="Öğe / firma / kişiye göre sırala"
+                            style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: '700', color: 'inherit' }}
+                          >
+                            Öğe {siralamaIkonu('oge')}
+                          </button>
                         </th>
 
                         <th style={{ padding: '14px 12px' }}>
@@ -2944,7 +3000,14 @@ export default function Dashboard() {
                         </th>
 
                         <th style={{ padding: '14px 12px' }}>
-                          Kategori
+                          <button
+                            type="button"
+                            onClick={() => siralamayiDegistir('kategori')}
+                            title="Kategoriye göre sırala"
+                            style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: '700', color: 'inherit' }}
+                          >
+                            Kategori {siralamaIkonu('kategori')}
+                          </button>
                         </th>
 
                         {aktifSekme === 'giderler' && (
@@ -2958,7 +3021,14 @@ export default function Dashboard() {
                         </th>
 
                         <th style={{ padding: '14px 12px' }}>
-                          Tutar
+                          <button
+                            type="button"
+                            onClick={() => siralamayiDegistir('tutar')}
+                            title="Tutara göre sırala"
+                            style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: '700', color: 'inherit' }}
+                          >
+                            Tutar {siralamaIkonu('tutar')}
+                          </button>
                         </th>
 
                         <th
