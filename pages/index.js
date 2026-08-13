@@ -1702,16 +1702,202 @@ export default function Dashboard() {
         .santiye-tabs button { flex: 0 0 auto; white-space: nowrap; }
         .santiye-main table { min-width: 760px; }
         .santiye-main input, .santiye-main select, .santiye-main textarea, .santiye-main button { max-width: 100%; }
-       >
-         <button
-           type="button"
-           className="mobil-menu-butonu"
-           aria-label="Menüyü aç"
-           onClick={() => setMobilMenuAcik(true)}
-         >
-           ☰
-         </button>
-         {!seciliProje ? (      `}</style>
+
+        .mobil-menu-butonu {
+          display: none;
+        }
+
+        .mobil-menu-overlay {
+          display: none;
+        }
+
+        .mobil-kart-liste {
+          display: none;
+        }
+
+        .mobil-kart {
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 14px;
+          margin-bottom: 12px;
+          box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+          overflow: hidden;
+        }
+
+        .mobil-kart-ust {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          padding-bottom: 12px;
+          border-bottom: 1px solid #f1f5f9;
+        }
+
+        .mobil-kart-oge {
+          color: #0f172a;
+          font-size: 15px;
+          font-weight: 800;
+          line-height: 1.3;
+          word-break: break-word;
+        }
+
+        .mobil-kart-tarih {
+          margin-top: 5px;
+          color: #64748b;
+          font-size: 12px;
+        }
+
+        .mobil-kart-tutar {
+          flex: 0 0 auto;
+          font-size: 16px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        .mobil-kart-detay {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0 14px;
+        }
+
+        .mobil-kart-alan {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          padding: 10px 0;
+          border-bottom: 1px solid #f8fafc;
+        }
+
+        .mobil-kart-etiket {
+          color: #94a3b8;
+          font-size: 10px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+
+        .mobil-kart-deger {
+          color: #334155;
+          font-size: 13px;
+          line-height: 1.35;
+          overflow-wrap: anywhere;
+        }
+
+        .mobil-kart-islem {
+          display: flex;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .mobil-kart-islem button {
+          flex: 1;
+          min-height: 38px;
+        }
+
+        @media (max-width: 768px) {
+          .santiye-app {
+            display: block !important;
+            width: 100%;
+            min-width: 0;
+          }
+
+          .santiye-sidebar {
+            position: fixed !important;
+            z-index: 1000 !important;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: min(300px, 86vw) !important;
+            height: 100vh;
+            overflow-y: auto;
+            transform: translateX(-105%);
+            transition: transform 0.22s ease;
+            box-shadow: 8px 0 30px rgba(15, 23, 42, 0.25) !important;
+          }
+
+          .santiye-sidebar.mobil-acik {
+            transform: translateX(0);
+          }
+
+          .mobil-menu-overlay {
+            display: block;
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            background: rgba(15, 23, 42, 0.45);
+          }
+
+          .mobil-menu-butonu {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 998;
+            width: 42px;
+            height: 42px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #fff;
+            color: #0f172a;
+            box-shadow: 0 3px 12px rgba(15, 23, 42, 0.12);
+            font-size: 22px;
+            cursor: pointer;
+          }
+
+          .santiye-main {
+            width: 100% !important;
+            max-width: none !important;
+            padding: 68px 12px 24px !important;
+            overflow-x: hidden !important;
+          }
+
+          .santiye-main table {
+            min-width: 0 !important;
+          }
+
+          .desktop-table-wrap {
+            display: none !important;
+          }
+
+          .mobil-kart-liste {
+            display: block !important;
+            width: 100%;
+          }
+
+          .santiye-tabs {
+            gap: 8px !important;
+            margin-bottom: 18px !important;
+          }
+
+          .santiye-tabs button {
+            padding: 10px 13px !important;
+            font-size: 13px !important;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .santiye-main {
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+          }
+
+          .mobil-kart {
+            padding: 12px;
+          }
+
+          .mobil-kart-detay {
+            grid-template-columns: 1fr;
+          }
+
+          .mobil-kart-alan[style*="grid-column"] {
+            grid-column: auto !important;
+          }
+        }
+      `}</style>
       <div
       className="santiye-app"
       style={{
