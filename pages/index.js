@@ -12,6 +12,10 @@ export default function Dashboard() {
   const [projeler, setProjeler] = useState([]);
   const [seciliProje, setSeciliProje] = useState(null);
   const [yeniProjeAdi, setYeniProjeAdi] = useState('');
+  const [projeDuzenlemeAcik, setProjeDuzenlemeAcik] = useState(false);
+  const [projeDuzenlenen, setProjeDuzenlenen] = useState(null);
+  const [projeDuzenlemeAdi, setProjeDuzenlemeAdi] = useState('');
+  const [projeDuzenlemeYukleniyor, setProjeDuzenlemeYukleniyor] = useState(false);
 
   const [harcamalar, setHarcamalar] = useState([]);
   const [gelirler, setGelirler] = useState([]);
@@ -235,7 +239,7 @@ export default function Dashboard() {
     const { data, error } = await supabase
       .from('projeler')
       .select('*')
-      .order('created_at', { ascending: true });
+      .order('sira_no', { ascending: true }).order('created_at', { ascending: true });
 
     if (error) {
       console.error('Projeler alınamadı:', error);
@@ -548,11 +552,21 @@ export default function Dashboard() {
         return;
       }
 
+      const { data: sonSiraKaydi } = await supabase
+        .from('projeler')
+        .select('sira_no')
+        .order('sira_no', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const yeniSiraNo = Number(sonSiraKaydi?.sira_no || 0) + 1;
+
       const { data, error } = await supabase
         .from('projeler')
         .insert([
           {
-            ad: projeAdi
+            ad: projeAdi,
+            sira_no: yeniSiraNo
           }
         ])
         .select()
@@ -576,6 +590,112 @@ export default function Dashboard() {
       console.error('Beklenmeyen hata:', error);
       setHata('Beklenmeyen bir hata oluştu.');
     }
+  }
+
+  // PROJE ADI DÜZENLE
+  function projeDuzenlemeAc(proje) {
+    if (kullaniciProfili?.rol !== 'yonetici') return;
+    setProjeDuzenlenen(proje);
+    setProjeDuzenlemeAdi(proje?.ad || '');
+    setProjeDuzenlemeAcik(true);
+    setHata('');
+    setMesaj('');
+    setMobilMenuAcik(false);
+  }
+
+  async function projeAdiGuncelle(event) {
+    event.preventDefault();
+
+    if (!projeDuzenlenen?.id) return;
+
+    const yeniAd = projeDuzenlemeAdi.trim();
+    if (!yeniAd) {
+      setHata('Lütfen proje adı girin.');
+      return;
+    }
+
+    setProjeDuzenlemeYukleniyor(true);
+    setHata('');
+    setMesaj('');
+
+    const { data, error } = await supabase
+      .from('projeler')
+      .update({ ad: yeniAd })
+      .eq('id', projeDuzenlenen.id)
+      .select()
+      .single();
+
+    setProjeDuzenlemeYukleniyor(false);
+
+    if (error) {
+      console.error('Proje adı güncelleme hatası:', error);
+      setHata('Proje adı güncellenemedi: ' + error.message);
+      return;
+    }
+
+    if (data) {
+      setProjeler((prev) => prev.map((p) => Number(p.id) === Number(data.id) ? { ...p, ...data } : p));
+      setSeciliProje((prev) => prev && Number(prev.id) === Number(data.id) ? { ...prev, ...data } : prev);
+      setProjeDuzenlenen(data);
+    }
+
+    setProjeDuzenlemeAcik(false);
+    setProjeDuzenlenen(null);
+    setProjeDuzenlemeAdi('');
+    setMesaj('Proje adı başarıyla güncellendi.');
+  }
+
+
+  // PROJE SIRASINI DEĞİŞTİR
+  async function projeSiraDegistir(projeId, yon) {
+    if (kullaniciProfili?.rol !== 'yonetici') return;
+
+    const mevcutIndex = projeler.findIndex((p) => Number(p.id) === Number(projeId));
+    if (mevcutIndex < 0) return;
+
+    const hedefIndex = yon === 'yukari' ? mevcutIndex - 1 : mevcutIndex + 1;
+    if (hedefIndex < 0 || hedefIndex >= projeler.length) return;
+
+    const mevcut = projeler[mevcutIndex];
+    const hedef = projeler[hedefIndex];
+    const mevcutSira = Number(mevcut.sira_no || mevcutIndex + 1);
+    const hedefSira = Number(hedef.sira_no || hedefIndex + 1);
+
+    setHata('');
+    setMesaj('Proje sırası güncelleniyor...');
+
+    const { error } = await supabase
+      .from('projeler')
+      .update({ sira_no: hedefSira })
+      .eq('id', mevcut.id);
+
+    if (error) {
+      setHata('Proje sırası güncellenemedi: ' + error.message);
+      setMesaj('');
+      return;
+    }
+
+    const { error: hedefError } = await supabase
+      .from('projeler')
+      .update({ sira_no: mevcutSira })
+      .eq('id', hedef.id);
+
+    if (hedefError) {
+      // İlk değişikliği geri almaya çalış.
+      await supabase.from('projeler').update({ sira_no: mevcutSira }).eq('id', mevcut.id);
+      setHata('Proje sırası güncellenemedi: ' + hedefError.message);
+      setMesaj('');
+      return;
+    }
+
+    const yeniListe = [...projeler];
+    [yeniListe[mevcutIndex], yeniListe[hedefIndex]] = [yeniListe[hedefIndex], yeniListe[mevcutIndex]];
+    const numaraliListe = yeniListe.map((p, index) => ({ ...p, sira_no: index + 1 }));
+
+    // Görünen listeyi güncelle; seçili proje nesnesini de güncel tut.
+    setProjeler(numaraliListe);
+    setSeciliProje((prev) => prev ? { ...prev, sira_no: numaraliListe.find((p) => Number(p.id) === Number(prev.id))?.sira_no || prev.sira_no } : prev);
+    setMesaj('Proje sırası güncellendi.');
   }
 
   // ALACAK / BORÇ KAYDET / GÜNCELLE
@@ -2059,8 +2179,62 @@ export default function Dashboard() {
                 gap: '10px'
               }}
             >
-              <span>🏢</span>
-              {p.ad}
+              <span style={{ flexShrink: 0 }}>🏢</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.ad}
+              </span>
+              {kullaniciProfili?.rol === 'yonetici' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }} onClick={(event) => event.stopPropagation()}>
+                  <span
+                    title={`Proje sırası: ${p.sira_no || projeler.indexOf(p) + 1}`}
+                    style={{
+                      minWidth: '22px', height: '22px', padding: '0 5px', borderRadius: '6px',
+                      background: seciliProje?.id === p.id ? 'rgba(255,255,255,0.16)' : '#1e293b',
+                      color: seciliProje?.id === p.id ? '#fff' : '#94a3b8', fontSize: '11px', fontWeight: 800,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box'
+                    }}
+                  >{p.sira_no || projeler.indexOf(p) + 1}</span>
+                  <button
+                    type="button"
+                    title="Yukarı taşı"
+                    aria-label="Yukarı taşı"
+                    onClick={() => projeSiraDegistir(p.id, 'yukari')}
+                    disabled={projeler.indexOf(p) === 0}
+                    style={{
+                      width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #334155',
+                      background: projeler.indexOf(p) === 0 ? '#0f172a' : (seciliProje?.id === p.id ? 'rgba(255,255,255,0.10)' : '#172236'),
+                      color: projeler.indexOf(p) === 0 ? '#475569' : '#cbd5e1', cursor: projeler.indexOf(p) === 0 ? 'default' : 'pointer',
+                      fontSize: '12px', lineHeight: 1
+                    }}
+                  >↑</button>
+                  <button
+                    type="button"
+                    title="Aşağı taşı"
+                    aria-label="Aşağı taşı"
+                    onClick={() => projeSiraDegistir(p.id, 'asagi')}
+                    disabled={projeler.indexOf(p) === projeler.length - 1}
+                    style={{
+                      width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #334155',
+                      background: projeler.indexOf(p) === projeler.length - 1 ? '#0f172a' : (seciliProje?.id === p.id ? 'rgba(255,255,255,0.10)' : '#172236'),
+                      color: projeler.indexOf(p) === projeler.length - 1 ? '#475569' : '#cbd5e1', cursor: projeler.indexOf(p) === projeler.length - 1 ? 'default' : 'pointer',
+                      fontSize: '12px', lineHeight: 1
+                    }}
+                  >↓</button>
+                  <button
+                    type="button"
+                    title="Proje adını düzenle"
+                    aria-label="Proje adını düzenle"
+                    onClick={() => projeDuzenlemeAc(p)}
+                    style={{
+                      width: '28px', height: '28px', borderRadius: '7px',
+                      border: seciliProje?.id === p.id ? '1px solid rgba(255,255,255,0.35)' : '1px solid #334155',
+                      background: seciliProje?.id === p.id ? 'rgba(255,255,255,0.12)' : '#172236',
+                      color: seciliProje?.id === p.id ? '#fff' : '#94a3b8', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px'
+                    }}
+                  >✏️</button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -2131,6 +2305,83 @@ export default function Dashboard() {
           Çıkış Yap
         </button>
       </div>
+
+      {projeDuzenlemeAcik && projeDuzenlenen && (
+        <div
+          onClick={() => {
+            if (!projeDuzenlemeYukleniyor) {
+              setProjeDuzenlemeAcik(false);
+              setProjeDuzenlenen(null);
+            }
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+        >
+          <form
+            onSubmit={projeAdiGuncelle}
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '460px',
+              background: '#fff',
+              borderRadius: '16px',
+              padding: '24px',
+              boxShadow: '0 24px 60px rgba(15, 23, 42, 0.25)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '19px' }}>✏️ Proje Düzenle</h3>
+                <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '12px' }}>Proje adı değiştirildiğinde mevcut kayıtlar korunur.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setProjeDuzenlemeAcik(false); setProjeDuzenlenen(null); }}
+                disabled={projeDuzenlemeYukleniyor}
+                style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', width: '34px', height: '34px', cursor: 'pointer', color: '#475569', fontSize: '18px' }}
+              >
+                ×
+              </button>
+            </div>
+
+            <label style={{ display: 'block', color: '#334155', fontSize: '13px', fontWeight: 600, marginBottom: '7px' }}>Proje Adı</label>
+            <input
+              autoFocus
+              value={projeDuzenlemeAdi}
+              onChange={(event) => setProjeDuzenlemeAdi(event.target.value)}
+              placeholder="Proje adını yazın..."
+              disabled={projeDuzenlemeYukleniyor}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '12px 14px', border: '1px solid #cbd5e1', borderRadius: '9px', fontSize: '14px', outline: 'none', color: '#0f172a' }}
+            />
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '18px' }}>
+              <button
+                type="button"
+                onClick={() => { setProjeDuzenlemeAcik(false); setProjeDuzenlenen(null); }}
+                disabled={projeDuzenlemeYukleniyor}
+                style={{ flex: 1, padding: '11px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', borderRadius: '9px', cursor: 'pointer', fontWeight: 600 }}
+              >
+                İptal
+              </button>
+              <button
+                type="submit"
+                disabled={projeDuzenlemeYukleniyor}
+                style={{ flex: 1, padding: '11px', border: 'none', background: '#2563eb', color: '#fff', borderRadius: '9px', cursor: projeDuzenlemeYukleniyor ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: projeDuzenlemeYukleniyor ? 0.7 : 1 }}
+              >
+                {projeDuzenlemeYukleniyor ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* ANA İÇERİK */}
       <div
