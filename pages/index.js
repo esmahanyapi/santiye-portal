@@ -892,19 +892,6 @@ export default function Dashboard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  // HAKEDİŞTEN DOĞRUDAN İLGİLİ CARİ HESABA GEÇ
-  function cariFinansAc(cariId) {
-    const id = Number(cariId);
-    if (!id) return;
-    setAktifSekme('cariler');
-    setCariDetayId(id);
-    setHata('');
-    setMesaj('İlgili cari hesabın finansal özeti açıldı.');
-    setTimeout(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 50);
-  }
-
   function cariDuzenlemeyiIptalEt() {
     setCariDuzenlenenId(null);
     setCariForm({ ...cariFormBaslangic });
@@ -932,6 +919,84 @@ export default function Dashboard() {
     await verileriGetir();
   }
 
+  // HAKEDİŞ → ALACAK/BORÇ SENKRONİZASYONU
+  // Sadece hakedis_id ile oluşturulan otomatik finans kayıtlarını yönetir.
+  // Manuel girilmiş Alacak/Borç kayıtlarına dokunmaz.
+  async function hakedisFinansKaydiniSenkronizeEt(hakedisId, hakedisKaydi) {
+    if (!hakedisId || !hakedisKaydi || !seciliProje) return { error: new Error('Hakediş bilgisi eksik.') };
+
+    const net = Math.max(
+      Number(hakedisKaydi.brut_tutar || 0) - Number(hakedisKaydi.kesinti || 0),
+      0
+    );
+    const odenen = Math.max(Number(hakedisKaydi.odenen_tutar || 0), 0);
+    const kalan = Math.max(net - odenen, 0);
+
+    let durum = 'Bekliyor';
+    if (hakedisKaydi.durum === 'İptal') {
+      durum = 'İptal';
+    } else if (kalan <= 0 && net > 0) {
+      durum = 'Ödendi';
+    } else if (odenen > 0) {
+      durum = 'Kısmen Ödendi';
+    }
+
+    const cari = cariler.find((c) => Number(c.id) === Number(hakedisKaydi.cari_id));
+    let cariAdi = cari?.ad || hakedisKaydi.cariler?.ad || '';
+
+    if (!cariAdi) {
+      const { data: cariKaydi } = await supabase
+        .from('cariler')
+        .select('id, ad')
+        .eq('id', hakedisKaydi.cari_id)
+        .eq('proje_id', seciliProje.id)
+        .maybeSingle();
+      cariAdi = cariKaydi?.ad || '';
+    }
+
+    if (!cariAdi) {
+      return { error: new Error('Hakedişe bağlı cari bulunamadı.') };
+    }
+
+    const finansKaydi = {
+      proje_id: seciliProje.id,
+      hakedis_id: Number(hakedisId),
+      tur: 'Borç',
+      taraf: cariAdi,
+      tarih: hakedisKaydi.tarih || bugununTarihi(),
+      vade_tarihi: hakedisKaydi.vade_tarihi || null,
+      kategori: 'Hakediş',
+      aciklama: `Hakediş ${hakedisKaydi.hakedis_no || hakedisId}${hakedisKaydi.aciklama ? ` - ${hakedisKaydi.aciklama}` : ''}`,
+      tutar: kalan,
+      durum
+    };
+
+    const { data: mevcut, error: mevcutError } = await supabase
+      .from('alacak_borclar')
+      .select('id')
+      .eq('hakedis_id', Number(hakedisId))
+      .maybeSingle();
+
+    if (mevcutError) {
+      return { error: mevcutError };
+    }
+
+    if (mevcut?.id) {
+      const { error } = await supabase
+        .from('alacak_borclar')
+        .update(finansKaydi)
+        .eq('id', mevcut.id)
+        .eq('hakedis_id', Number(hakedisId));
+      return { error };
+    }
+
+    const { error } = await supabase
+      .from('alacak_borclar')
+      .insert([finansKaydi]);
+
+    return { error };
+  }
+
   // HAKEDİŞ KAYDET / GÜNCELLE
   async function hakedisKaydet(event) {
     event.preventDefault();
@@ -944,14 +1009,6 @@ export default function Dashboard() {
       setHata('Lütfen bir cari/firma seçin.');
       return;
     }
-
-    // Hakedişin seçilen cari hesaba ve aynı projeye ait olduğundan emin ol.
-    const secilenCari = cariler.find((c) => Number(c.id) === Number(hakedisForm.cari_id));
-    if (!secilenCari) {
-      setHata('Seçilen cari hesap bu projede bulunamadı. Lütfen cari hesabı yeniden seçin.');
-      return;
-    }
-
     if (!hakedisForm.hakedis_no.trim() || !hakedisForm.tarih) {
       setHata('Hakediş No ve tarih zorunludur.');
       return;
@@ -993,16 +1050,27 @@ export default function Dashboard() {
     };
 
     let error = null;
+    let kaydedilenHakedisId = hakedisDuzenlenenId;
+
     if (hakedisDuzenlenenId) {
       const sonuc = await supabase
         .from('hakedisler')
         .update(kayit)
         .eq('id', hakedisDuzenlenenId)
-        .eq('proje_id', seciliProje.id);
+        .eq('proje_id', seciliProje.id)
+        .select('*')
+        .single();
       error = sonuc.error;
+      if (!error) kayit.id = sonuc.data?.id || hakedisDuzenlenenId;
     } else {
-      const sonuc = await supabase.from('hakedisler').insert([kayit]);
+      const sonuc = await supabase
+        .from('hakedisler')
+        .insert([kayit])
+        .select('*')
+        .single();
       error = sonuc.error;
+      kaydedilenHakedisId = sonuc.data?.id || null;
+      if (!error && sonuc.data) Object.assign(kayit, sonuc.data);
     }
 
     if (error) {
@@ -1011,9 +1079,18 @@ export default function Dashboard() {
       return;
     }
 
+    // Hakedişin kalan tutarını otomatik Alacak/Borç kaydına senkronize et.
+    const finansSonuc = await hakedisFinansKaydiniSenkronizeEt(kaydedilenHakedisId, kayit);
+    if (finansSonuc.error) {
+      console.error('Hakediş → Alacak/Borç senkronizasyon hatası:', finansSonuc.error);
+      setHata('Hakediş kaydedildi ancak Alacak/Borç bağlantısı oluşturulamadı: ' + finansSonuc.error.message);
+      await verileriGetir();
+      return;
+    }
+
     setHakedisForm({ ...hakedisFormBaslangic, tarih: bugununTarihi() });
     setHakedisDuzenlenenId(null);
-    setMesaj(hakedisDuzenlenenId ? 'Hakediş başarıyla güncellendi.' : 'Hakediş başarıyla eklendi.');
+    setMesaj(hakedisDuzenlenenId ? 'Hakediş ve bağlı borç başarıyla güncellendi.' : 'Hakediş ve bağlı borç başarıyla eklendi.');
     await verileriGetir();
   }
 
@@ -3796,25 +3873,7 @@ export default function Dashboard() {
                         return (
                           <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '12px', fontWeight: '800' }}>{i.hakedis_no}</td>
-                            <td style={{ padding: '12px' }}>
-                              <button
-                                type="button"
-                                onClick={() => cariFinansAc(i.cari_id)}
-                                title="Bu hakedişin bağlı olduğu cari hesabı aç"
-                                style={{
-                                  padding: 0,
-                                  border: 'none',
-                                  background: 'transparent',
-                                  color: '#1d4ed8',
-                                  cursor: 'pointer',
-                                  fontWeight: '800',
-                                  textAlign: 'left'
-                                }}
-                              >
-                                {i.cariler?.ad || cariler.find(c => Number(c.id) === Number(i.cari_id))?.ad || '-'}
-                              </button>
-                              <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '3px' }}>↗ Cari hesabı aç</div>
-                            </td>
+                            <td style={{ padding: '12px', fontWeight: '700' }}>{i.cariler?.ad || cariler.find(c => c.id === i.cari_id)?.ad || '-'}</td>
                             <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>{i.tarih || '-'}</td>
                             <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>{i.vade_tarihi || '-'}</td>
                             <td style={{ padding: '12px', color: '#64748b' }}>{i.aciklama || '-'}</td>
