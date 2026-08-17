@@ -157,6 +157,10 @@ export default function Dashboard() {
   };
   const [hakedisForm, setHakedisForm] = useState(hakedisFormBaslangic);
   const [hakedisDuzenlenenId, setHakedisDuzenlenenId] = useState(null);
+  const [hakedisOdemeleri, setHakedisOdemeleri] = useState([]);
+  const [hakedisOdemeModal, setHakedisOdemeModal] = useState(null);
+  const [hakedisOdemeForm, setHakedisOdemeForm] = useState({ tarih: bugununTarihi(), tutar: '', aciklama: '' });
+  const [hakedisOdemeYukleniyor, setHakedisOdemeYukleniyor] = useState(false);
 
   const finansFormBaslangic = {
     tur: 'Alacak',
@@ -320,6 +324,12 @@ export default function Dashboard() {
       .eq('proje_id', seciliProje.id)
       .order('tarih', { ascending: false });
 
+    const { data: ho, error: hoError } = await supabase
+      .from('hakedis_odemeleri')
+      .select('*')
+      .eq('proje_id', seciliProje.id)
+      .order('tarih', { ascending: false });
+
     const { data: pb, error: pbError } = await supabase
       .from('proje_butceleri')
       .select('*')
@@ -357,6 +367,9 @@ export default function Dashboard() {
     if (hdError) {
       console.error('Hakedişler alınamadı:', hdError);
     }
+    if (hoError) {
+      console.error('Hakediş ödeme hareketleri alınamadı:', hoError);
+    }
     if (pbError) {
       console.error('Proje bütçeleri alınamadı:', pbError);
     }
@@ -369,6 +382,7 @@ export default function Dashboard() {
     setAlacakBorclar(f || []);
     setCariler(c || []);
     setHakedisler(hd || []);
+    setHakedisOdemeleri(ho || []);
     setProjeButceleri(pb || []);
     setProjeMaliyetleri(pm || []);
     setFinansEvraklari(fe || []);
@@ -995,6 +1009,163 @@ export default function Dashboard() {
       .insert([finansKaydi]);
 
     return { error };
+  }
+
+  // HAKEDİŞ ÖDEME HAREKETLERİ
+  function hakedisOdemeHareketleriniGetir(hakedisId) {
+    return hakedisOdemeleri
+      .filter((o) => Number(o.hakedis_id) === Number(hakedisId))
+      .sort((a, b) => String(b.tarih || '').localeCompare(String(a.tarih || '')));
+  }
+
+  function hakedisOdemeModalAc(kayit) {
+    setHakedisOdemeModal(kayit);
+    setHakedisOdemeForm({ tarih: bugununTarihi(), tutar: '', aciklama: '' });
+    setHata('');
+    setMesaj('');
+  }
+
+  function hakedisOdemeModalKapat() {
+    setHakedisOdemeModal(null);
+    setHakedisOdemeForm({ tarih: bugununTarihi(), tutar: '', aciklama: '' });
+    setHakedisOdemeYukleniyor(false);
+  }
+
+  async function hakedisOdemeEkle(event) {
+    event.preventDefault();
+    if (!seciliProje || !hakedisOdemeModal) return;
+
+    const tutar = Number(hakedisOdemeForm.tutar || 0);
+    const net = Math.max(
+      Number(hakedisOdemeModal.brut_tutar || 0) - Number(hakedisOdemeModal.kesinti || 0),
+      0
+    );
+    const mevcutOdenen = Math.max(Number(hakedisOdemeModal.odenen_tutar || 0), 0);
+    const mevcutHareketler = hakedisOdemeHareketleriniGetir(hakedisOdemeModal.id);
+    const hareketToplami = mevcutHareketler.reduce((toplam, o) => toplam + Number(o.tutar || 0), 0);
+    const yeniOdenen = mevcutOdenen + tutar;
+
+    if (!hakedisOdemeForm.tarih) {
+      setHata('Ödeme tarihi zorunludur.');
+      return;
+    }
+    if (!Number.isFinite(tutar) || tutar <= 0) {
+      setHata('Geçerli ve 0’dan büyük bir ödeme tutarı girin.');
+      return;
+    }
+    if (yeniOdenen > net + 0.005) {
+      setHata(`Ödeme tutarı kalan hakedişi aşamaz. Kalan: ₺${Math.max(net - mevcutOdenen, 0).toLocaleString('tr-TR')}`);
+      return;
+    }
+
+    setHata('');
+    setMesaj('');
+    setHakedisOdemeYukleniyor(true);
+
+    const { data: odeme, error } = await supabase
+      .from('hakedis_odemeleri')
+      .insert([{
+        proje_id: seciliProje.id,
+        hakedis_id: Number(hakedisOdemeModal.id),
+        tarih: hakedisOdemeForm.tarih,
+        tutar,
+        aciklama: hakedisOdemeForm.aciklama.trim()
+      }])
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Hakediş ödeme ekleme hatası:', error);
+      setHata('Ödeme hareketi eklenemedi: ' + error.message);
+      setHakedisOdemeYukleniyor(false);
+      return;
+    }
+
+    const yeniDurum = yeniOdenen >= net && net > 0 ? 'Ödendi' : 'Kısmen Ödendi';
+    const { data: guncelHakedis, error: hakedisError } = await supabase
+      .from('hakedisler')
+      .update({ odenen_tutar: yeniOdenen, durum: yeniDurum })
+      .eq('id', Number(hakedisOdemeModal.id))
+      .eq('proje_id', seciliProje.id)
+      .select('*')
+      .single();
+
+    if (hakedisError) {
+      await supabase.from('hakedis_odemeleri').delete().eq('id', odeme.id);
+      console.error('Hakediş güncelleme hatası:', hakedisError);
+      setHata('Ödeme kaydedilemedi: ' + hakedisError.message);
+      setHakedisOdemeYukleniyor(false);
+      return;
+    }
+
+    const finansSonuc = await hakedisFinansKaydiniSenkronizeEt(guncelHakedis.id, guncelHakedis);
+    if (finansSonuc.error) {
+      console.error('Ödeme sonrası Alacak/Borç senkronizasyon hatası:', finansSonuc.error);
+      setHata('Ödeme kaydedildi ancak Alacak/Borç güncellenemedi: ' + finansSonuc.error.message);
+    } else {
+      setMesaj(`₺${tutar.toLocaleString('tr-TR')} ödeme kaydedildi. Hakediş bakiyesi güncellendi.`);
+    }
+
+    setHakedisOdemeModal(guncelHakedis);
+    setHakedisOdemeForm({ tarih: bugununTarihi(), tutar: '', aciklama: '' });
+    setHakedisOdemeYukleniyor(false);
+    await verileriGetir();
+  }
+
+  async function hakedisOdemeSil(odeme) {
+    if (!hakedisOdemeModal) return;
+    if (!window.confirm(`₺${Number(odeme.tutar || 0).toLocaleString('tr-TR')} tutarındaki ödeme hareketi silinsin mi?`)) return;
+
+    setHakedisOdemeYukleniyor(true);
+    setHata('');
+    setMesaj('');
+
+    const { error: silError } = await supabase
+      .from('hakedis_odemeleri')
+      .delete()
+      .eq('id', odeme.id)
+      .eq('proje_id', seciliProje.id)
+      .eq('hakedis_id', hakedisOdemeModal.id);
+
+    if (silError) {
+      setHata('Ödeme hareketi silinemedi: ' + silError.message);
+      setHakedisOdemeYukleniyor(false);
+      return;
+    }
+
+    const mevcutOdenen = Math.max(Number(hakedisOdemeModal.odenen_tutar || 0), 0);
+    const yeniOdenen = Math.max(mevcutOdenen - Number(odeme.tutar || 0), 0);
+    const net = Math.max(
+      Number(hakedisOdemeModal.brut_tutar || 0) - Number(hakedisOdemeModal.kesinti || 0),
+      0
+    );
+    const yeniDurum = yeniOdenen <= 0 ? 'Bekliyor' : yeniOdenen >= net && net > 0 ? 'Ödendi' : 'Kısmen Ödendi';
+
+    const { data: guncelHakedis, error: hakedisError } = await supabase
+      .from('hakedisler')
+      .update({ odenen_tutar: yeniOdenen, durum: yeniDurum })
+      .eq('id', Number(hakedisOdemeModal.id))
+      .eq('proje_id', seciliProje.id)
+      .select('*')
+      .single();
+
+    if (hakedisError) {
+      setHata('Hakediş ödenen tutarı güncellenemedi: ' + hakedisError.message);
+      setHakedisOdemeYukleniyor(false);
+      await verileriGetir();
+      return;
+    }
+
+    const finansSonuc = await hakedisFinansKaydiniSenkronizeEt(guncelHakedis.id, guncelHakedis);
+    if (finansSonuc.error) {
+      setHata('Ödeme silindi ancak Alacak/Borç güncellenemedi: ' + finansSonuc.error.message);
+    } else {
+      setMesaj('Ödeme hareketi silindi ve hakediş bakiyesi güncellendi.');
+    }
+
+    setHakedisOdemeModal(guncelHakedis);
+    setHakedisOdemeYukleniyor(false);
+    await verileriGetir();
   }
 
   // HAKEDİŞ KAYDET / GÜNCELLE
@@ -3885,6 +4056,7 @@ export default function Dashboard() {
                             <td style={{ padding: '12px' }}><span style={{ padding: '4px 8px', borderRadius: '6px', background: i.durum === 'Ödendi' ? '#dcfce7' : i.durum === 'İptal' ? '#f1f5f9' : '#fef3c7', color: i.durum === 'Ödendi' ? '#166534' : i.durum === 'İptal' ? '#64748b' : '#92400e', fontWeight: '700', fontSize: '12px' }}>{i.durum}</span></td>
                             <td style={{ padding: '12px' }}>
                               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                <button type="button" onClick={() => hakedisOdemeModalAc(i)} style={{ padding: '6px 10px', background: '#dbeafe', color: '#1d4ed8', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>💳 Ödemeler</button>
                                 <button type="button" onClick={() => hakedisDuzenle(i)} style={{ padding: '6px 10px', background: '#fef3c7', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Düzenle</button>
                                 <button type="button" onClick={() => hakedisSil(i.id)} style={{ padding: '6px 10px', background: '#fee2e2', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Sil</button>
                               </div>
@@ -4863,6 +5035,69 @@ export default function Dashboard() {
                 {excelAktarimYukleniyor ? '⏳ Aktarılıyor...' : `✅ ${excelAktarimSatirlari.length} Kaydı Aktar`}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+
+      {hakedisOdemeModal && (
+        <div onClick={hakedisOdemeModalKapat} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 1150, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '760px', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: '16px', padding: '24px', boxShadow: '0 24px 60px rgba(15,23,42,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '18px' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '20px' }}>💳 Hakediş Ödeme Hareketleri</h3>
+                <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '12px' }}>{hakedisOdemeModal.hakedis_no || '-'} • {hakedisOdemeModal.cariler?.ad || cariler.find(c => Number(c.id) === Number(hakedisOdemeModal.cari_id))?.ad || '-'}</p>
+              </div>
+              <button type="button" onClick={hakedisOdemeModalKapat} style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', width: '34px', height: '34px', cursor: 'pointer', color: '#475569', fontSize: '18px' }}>×</button>
+            </div>
+
+            {(() => {
+              const net = Math.max(Number(hakedisOdemeModal.brut_tutar || 0) - Number(hakedisOdemeModal.kesinti || 0), 0);
+              const odenen = Number(hakedisOdemeModal.odenen_tutar || 0);
+              const kalan = Math.max(net - odenen, 0);
+              const hareketler = hakedisOdemeHareketleriniGetir(hakedisOdemeModal.id);
+              const hareketToplami = hareketler.reduce((t, o) => t + Number(o.tutar || 0), 0);
+              return (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px', marginBottom: '20px' }}>
+                    <div style={{ padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>NET HAKEDİŞ</div><div style={{ marginTop: '5px', fontSize: '20px', fontWeight: '900', color: '#166534' }}>₺{net.toLocaleString('tr-TR')}</div></div>
+                    <div style={{ padding: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>TOPLAM ÖDENEN</div><div style={{ marginTop: '5px', fontSize: '20px', fontWeight: '900', color: '#1d4ed8' }}>₺{odenen.toLocaleString('tr-TR')}</div></div>
+                    <div style={{ padding: '14px', background: kalan > 0 ? '#fef2f2' : '#f0fdf4', border: `1px solid ${kalan > 0 ? '#fecaca' : '#bbf7d0'}`, borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>KALAN</div><div style={{ marginTop: '5px', fontSize: '20px', fontWeight: '900', color: kalan > 0 ? '#dc2626' : '#166534' }}>₺{kalan.toLocaleString('tr-TR')}</div></div>
+                    <div style={{ padding: '14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>HAREKET TOPLAMI</div><div style={{ marginTop: '5px', fontSize: '20px', fontWeight: '900', color: '#334155' }}>₺{hareketToplami.toLocaleString('tr-TR')}</div></div>
+                  </div>
+
+                  {kalan > 0 && hakedisOdemeModal.durum !== 'İptal' && (
+                    <form onSubmit={hakedisOdemeEkle} style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', marginBottom: '20px' }}>
+                      <div style={{ fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>➕ Yeni Ödeme Ekle</div>
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'end' }}>
+                        <div style={{ flex: 1, minWidth: '140px' }}><label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '5px' }}>TARİH</label><input type="date" required value={hakedisOdemeForm.tarih} onChange={e => setHakedisOdemeForm({ ...hakedisOdemeForm, tarih: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} /></div>
+                        <div style={{ flex: 1, minWidth: '150px' }}><label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '5px' }}>TUTAR (₺)</label><input type="number" required min="0.01" max={kalan} step="0.01" value={hakedisOdemeForm.tutar} onChange={e => setHakedisOdemeForm({ ...hakedisOdemeForm, tutar: e.target.value })} placeholder={kalan.toFixed(2)} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700' }} /></div>
+                        <div style={{ flex: 2, minWidth: '200px' }}><label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '5px' }}>AÇIKLAMA</label><input value={hakedisOdemeForm.aciklama} onChange={e => setHakedisOdemeForm({ ...hakedisOdemeForm, aciklama: e.target.value })} placeholder="Örn: İlk ödeme" style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} /></div>
+                        <button type="submit" disabled={hakedisOdemeYukleniyor} style={{ padding: '10px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', minHeight: '40px' }}>{hakedisOdemeYukleniyor ? '⏳' : '💳 Ödemeyi Kaydet'}</button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div style={{ fontWeight: '800', color: '#0f172a', marginBottom: '10px' }}>Ödeme Geçmişi</div>
+                  {hareketler.length === 0 ? (
+                    <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '10px' }}>Henüz ödeme hareketi eklenmemiş.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {hareketler.map(o => (
+                        <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                          <div><div style={{ fontWeight: '800', color: '#334155' }}>{o.tarih || '-'} • ₺{Number(o.tutar || 0).toLocaleString('tr-TR')}</div><div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>{o.aciklama || 'Açıklama yok'}</div></div>
+                          <button type="button" disabled={hakedisOdemeYukleniyor} onClick={() => hakedisOdemeSil(o)} style={{ padding: '7px 10px', border: 'none', borderRadius: '7px', background: '#fee2e2', color: '#991b1b', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>Sil</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: '14px', padding: '11px 13px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '9px', fontSize: '12px', color: '#9a3412' }}>
+                    ℹ️ Bu ekrandan eklenen ödemeler hakedişin <strong>Ödenen</strong> tutarına otomatik işlenir ve bağlı <strong>Alacak/Borç</strong> kaydı anında güncellenir.
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
