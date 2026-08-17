@@ -24,6 +24,11 @@ export default function Dashboard() {
   const [hakedisler, setHakedisler] = useState([]);
   const [projeButceleri, setProjeButceleri] = useState([]);
   const [projeMaliyetleri, setProjeMaliyetleri] = useState([]);
+  const [finansEvraklari, setFinansEvraklari] = useState([]);
+  const [belgeDosyalari, setBelgeDosyalari] = useState([]);
+  const [belgeYukleniyor, setBelgeYukleniyor] = useState(false);
+  const [belgeModalKayit, setBelgeModalKayit] = useState(null);
+  const [belgeModalYukleniyor, setBelgeModalYukleniyor] = useState(false);
   const [maliyetForm, setMaliyetForm] = useState({ kategori: 'Beton', butce_tutari: '', aciklama: '' });
   const [maliyetKayitForm, setMaliyetKayitForm] = useState({ kategori: 'Beton', tutar: '', tarih: '', cari_id: '', gider_id: '', aciklama: '' });
   const [butceDuzenlenenId, setButceDuzenlenenId] = useState(null);
@@ -324,12 +329,21 @@ export default function Dashboard() {
       .eq('proje_id', seciliProje.id)
       .order('tarih', { ascending: false });
 
+    const { data: fe, error: feError } = await supabase
+      .from('finans_evraklari')
+      .select('*')
+      .eq('proje_id', seciliProje.id)
+      .order('created_at', { ascending: false });
+
     if (hError) {
       console.error('Harcamalar alınamadı:', hError);
     }
 
     if (gError) {
       console.error('Gelirler alınamadı:', gError);
+    }
+    if (feError) {
+      console.error('Finans evrakları alınamadı:', feError);
     }
     if (fError) {
       console.error('Alacak/borç kayıtları alınamadı:', fError);
@@ -354,6 +368,7 @@ export default function Dashboard() {
     setHakedisler(hd || []);
     setProjeButceleri(pb || []);
     setProjeMaliyetleri(pm || []);
+    setFinansEvraklari(fe || []);
   }
 
   // KULLANICI YÖNETİMİ
@@ -769,6 +784,7 @@ export default function Dashboard() {
       durum: kayit.durum || 'Bekliyor'
     });
     setDuzenlenenKayitId(kayit.id);
+    setBelgeDosyalari([]);
     setMesaj('Kayıt düzenleme modunda.');
     setHata('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1098,72 +1114,140 @@ export default function Dashboard() {
     setMesaj('Maliyet kaydı silindi.'); setHata(''); await verileriGetir();
   }
 
+  // FİNANS EVRAKLARI
+  function guvenliDosyaAdi(ad) {
+    return String(ad || 'belge')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'belge';
+  }
+
+  function kayitEvraklari(kayitTipi, kayitId) {
+    return finansEvraklari.filter((e) => e.kayit_tipi === kayitTipi && Number(e.kayit_id) === Number(kayitId));
+  }
+
+  async function belgeModalAc(kayit) {
+    const kayitTipi = aktifSekme === 'gelirler' ? 'gelir' : 'gider';
+    setBelgeModalYukleniyor(true);
+    setBelgeModalKayit({ ...kayit, kayitTipi });
+    try {
+      const { data, error } = await supabase
+        .from('finans_evraklari')
+        .select('*')
+        .eq('proje_id', seciliProje.id)
+        .eq('kayit_tipi', kayitTipi)
+        .eq('kayit_id', kayit.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setFinansEvraklari((prev) => [
+        ...prev.filter((e) => !(e.kayit_tipi === kayitTipi && Number(e.kayit_id) === Number(kayit.id))),
+        ...(data || [])
+      ]);
+    } catch (error) {
+      setHata('Belgeler yüklenemedi: ' + error.message);
+    } finally {
+      setBelgeModalYukleniyor(false);
+    }
+  }
+
+  async function belgeGoruntule(evrak) {
+    try {
+      const { data, error } = await supabase.storage.from('finans-evraklari').createSignedUrl(evrak.dosya_yolu, 60 * 10);
+      if (error) throw error;
+      if (data?.signedUrl) window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setHata('Belge açılamadı: ' + error.message);
+    }
+  }
+
+  async function belgeSil(evrak) {
+    if (!window.confirm(`"${evrak.dosya_adi}" belgesini silmek istediğinize emin misiniz?`)) return;
+    try {
+      const { error: storageError } = await supabase.storage.from('finans-evraklari').remove([evrak.dosya_yolu]);
+      if (storageError) throw storageError;
+      const { error: dbError } = await supabase.from('finans_evraklari').delete().eq('id', evrak.id).eq('proje_id', seciliProje.id);
+      if (dbError) throw dbError;
+      setFinansEvraklari((prev) => prev.filter((e) => e.id !== evrak.id));
+      setMesaj('Belge silindi.');
+      setHata('');
+    } catch (error) {
+      setHata('Belge silinemedi: ' + error.message);
+    }
+  }
+
+  async function finansEvraklariniYukle(kayitTipi, kayitId, dosyalar) {
+    if (!dosyalar?.length) return;
+    const izinliTipler = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    for (const dosya of dosyalar) {
+      if (dosya.size > 10 * 1024 * 1024) throw new Error(`"${dosya.name}" 10 MB sınırını aşıyor.`);
+      if (!izinliTipler.includes(dosya.type)) throw new Error(`"${dosya.name}" desteklenmeyen dosya türü. PDF, JPG, PNG veya WEBP yükleyin.`);
+    }
+    const { data: userData } = await supabase.auth.getUser();
+    for (const dosya of dosyalar) {
+      const temizAd = guvenliDosyaAdi(dosya.name);
+      const dosyaYolu = `${seciliProje.id}/${kayitTipi}/${kayitId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${temizAd}`;
+      const { error: uploadError } = await supabase.storage.from('finans-evraklari').upload(dosyaYolu, dosya, { upsert: false, contentType: dosya.type || undefined });
+      if (uploadError) throw uploadError;
+      const { error: insertError } = await supabase.from('finans_evraklari').insert([{
+        proje_id: seciliProje.id,
+        kayit_tipi: kayitTipi,
+        kayit_id: kayitId,
+        dosya_adi: dosya.name,
+        dosya_yolu: dosyaYolu,
+        mime_type: dosya.type || null,
+        dosya_boyutu: dosya.size,
+        yukleyen_id: userData?.user?.id || null
+      }]);
+      if (insertError) {
+        await supabase.storage.from('finans-evraklari').remove([dosyaYolu]);
+        throw insertError;
+      }
+    }
+  }
+
   // GELİR / GİDER KAYDET / GÜNCELLE
   async function kaydet(event) {
     event.preventDefault();
-
-    if (!seciliProje) {
-      setHata('Önce bir proje seçmelisiniz.');
-      return;
-    }
-
+    if (!seciliProje) return setHata('Önce bir proje seçmelisiniz.');
     const tutar = Number(form.tutar);
+    if (!form.tarih || !form.oge.trim() || !form.kategori.trim()) return setHata('Tarih, Öğe/Firma/Kişi ve Kategori alanları zorunludur.');
+    if (!Number.isFinite(tutar) || tutar <= 0) return setHata('Lütfen geçerli ve 0’dan büyük bir tutar girin.');
 
-    if (!form.tarih || !form.oge.trim() || !form.kategori.trim()) {
-      setHata('Tarih, Öğe/Firma/Kişi ve Kategori alanları zorunludur.');
-      return;
-    }
-
-    if (!Number.isFinite(tutar) || tutar <= 0) {
-      setHata('Lütfen geçerli ve 0’dan büyük bir tutar girin.');
-      return;
-    }
-
-    setHata('');
-    setMesaj('');
-
+    setHata(''); setMesaj(''); setBelgeYukleniyor(true);
     const tablo = aktifSekme === 'gelirler' ? 'gelirler' : 'harcamalar';
+    const kayitTipi = aktifSekme === 'gelirler' ? 'gelir' : 'gider';
     const kayit = {
-      oge: form.oge.trim(),
-      makbuz_no: form.makbuz_no.trim(),
-      fatura_no: form.fatura_no.trim(),
-      tarih: form.tarih,
-      kategori: form.kategori.trim(),
-      aciklama: form.aciklama.trim(),
-      tutar,
+      oge: form.oge.trim(), makbuz_no: form.makbuz_no.trim(), fatura_no: form.fatura_no.trim(),
+      tarih: form.tarih, kategori: form.kategori.trim(), aciklama: form.aciklama.trim(), tutar,
       proje_id: seciliProje.id,
-      ...(aktifSekme === 'giderler'
-        ? { odeme_kaynagi: form.odeme_kaynagi || 'Kasa' }
-        : {})
+      ...(aktifSekme === 'giderler' ? { odeme_kaynagi: form.odeme_kaynagi || 'Kasa' } : {})
     };
 
-    let error = null;
-
+    let error = null; let kayitId = duzenlenenKayitId;
     if (duzenlenenKayitId) {
-      const sonuc = await supabase
-        .from(tablo)
-        .update(kayit)
-        .eq('id', duzenlenenKayitId)
-        .eq('proje_id', seciliProje.id);
-      error = sonuc.error;
+      const sonuc = await supabase.from(tablo).update(kayit).eq('id', duzenlenenKayitId).eq('proje_id', seciliProje.id).select('id').single();
+      error = sonuc.error; kayitId = sonuc.data?.id || duzenlenenKayitId;
     } else {
-      const sonuc = await supabase
-        .from(tablo)
-        .insert([kayit]);
-      error = sonuc.error;
+      const sonuc = await supabase.from(tablo).insert([kayit]).select('id').single();
+      error = sonuc.error; kayitId = sonuc.data?.id;
     }
-
     if (error) {
       console.error('Kayıt kaydetme/güncelleme hatası:', error);
-      setHata('Kayıt kaydedilemedi: ' + error.message);
-      return;
+      setHata('Kayıt kaydedilemedi: ' + error.message); setBelgeYukleniyor(false); return;
     }
 
-    setForm({ ...formBaslangic, tarih: bugununTarihi() });
-    setDuzenlenenKayitId(null);
-    setMesaj(duzenlenenKayitId ? 'Kayıt başarıyla güncellendi.' : 'Kayıt başarıyla eklendi.');
+    try {
+      await finansEvraklariniYukle(kayitTipi, kayitId, belgeDosyalari);
+    } catch (error) {
+      console.error('Belge yükleme hatası:', error);
+      setHata(`Finans kaydı kaydedildi ancak belge yüklenemedi: ${error.message}`);
+      setMesaj('Finans kaydı kaydedildi.'); setBelgeYukleniyor(false); setBelgeDosyalari([]); await verileriGetir(); return;
+    }
 
-    await verileriGetir();
+    setForm({ ...formBaslangic, tarih: bugununTarihi() }); setBelgeDosyalari([]); setDuzenlenenKayitId(null);
+    setMesaj(duzenlenenKayitId ? 'Kayıt ve belgeler başarıyla güncellendi.' : 'Kayıt ve belgeler başarıyla eklendi.');
+    setBelgeYukleniyor(false); await verileriGetir();
   }
 
   // KAYIT DÜZENLE
@@ -1187,6 +1271,7 @@ export default function Dashboard() {
   // DÜZENLEMEYİ İPTAL ET
   function duzenlemeyiIptalEt() {
     setDuzenlenenKayitId(null);
+    setBelgeDosyalari([]);
     setForm({ ...formBaslangic, tarih: bugununTarihi() });
     setMesaj('Düzenleme iptal edildi.');
     setHata('');
@@ -1197,6 +1282,18 @@ export default function Dashboard() {
     if (!window.confirm('Bu kaydı silmek istediğinize emin misiniz?')) return;
 
     const tablo = aktifSekme === 'gelirler' ? 'gelirler' : 'harcamalar';
+    const kayitTipi = aktifSekme === 'gelirler' ? 'gelir' : 'gider';
+    const { data: bagliEvraklar } = await supabase.from('finans_evraklari').select('id, dosya_yolu').eq('proje_id', seciliProje.id).eq('kayit_tipi', kayitTipi).eq('kayit_id', id);
+    if (bagliEvraklar?.length) {
+      const yollar = bagliEvraklar.map((e) => e.dosya_yolu).filter(Boolean);
+      if (yollar.length) {
+        const { error: storageError } = await supabase.storage.from('finans-evraklari').remove(yollar);
+        if (storageError) { setHata('Kayıt silinmedi. Bağlı belgeler silinemedi: ' + storageError.message); return; }
+      }
+      const { error: evrakError } = await supabase.from('finans_evraklari').delete().eq('proje_id', seciliProje.id).eq('kayit_tipi', kayitTipi).eq('kayit_id', id);
+      if (evrakError) { setHata('Bağlı belgeler silinemedi: ' + evrakError.message); return; }
+    }
+
     const { error } = await supabase
       .from(tablo)
       .delete()
@@ -3856,6 +3953,13 @@ export default function Dashboard() {
                     />
                   </div>
 
+                  <div style={{ width: '100%', padding: '12px 14px', border: '1px dashed #93c5fd', borderRadius: '10px', background: '#eff6ff' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', color: '#1e40af', marginBottom: '7px' }}>📎 DEKONT / MAKBUZ / FATURA</label>
+                    <input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" disabled={belgeYukleniyor} onChange={(e) => setBelgeDosyalari(Array.from(e.target.files || []))} style={{ width: '100%', fontSize: '13px', color: '#334155' }} />
+                    <div style={{ marginTop: '7px', color: '#64748b', fontSize: '11px' }}>PDF, JPG, PNG veya WEBP • Tek dosya en fazla 10 MB</div>
+                    {belgeDosyalari.length > 0 && <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>{belgeDosyalari.map((dosya, index) => <div key={`${dosya.name}-${index}`} style={{ fontSize: '12px', color: '#334155' }}>📄 {dosya.name} <span style={{ color: '#64748b' }}>({(dosya.size / 1024 / 1024).toFixed(2)} MB)</span></div>)}</div>}
+                  </div>
+
                   <div
                     style={{
                       display: 'flex',
@@ -3865,6 +3969,7 @@ export default function Dashboard() {
                   >
                     <button
                       type="submit"
+                      disabled={belgeYukleniyor}
                       style={{
                         flex: 1, padding: '12px',
                         backgroundColor: duzenlenenKayitId ? '#f59e0b' : '#2563eb',
@@ -3872,7 +3977,7 @@ export default function Dashboard() {
                         fontWeight: 'bold', boxShadow: '0 4px 10px rgba(37, 99, 235, 0.2)'
                       }}
                     >
-                      {duzenlenenKayitId ? '✓ Değişiklikleri Güncelle' : 'Sisteme Kaydet'}
+                      {belgeYukleniyor ? 'Kaydediliyor...' : duzenlenenKayitId ? '✓ Değişiklikleri Güncelle' : 'Sisteme Kaydet'}
                     </button>
                     {duzenlenenKayitId && (
                       <button
@@ -4046,6 +4151,7 @@ export default function Dashboard() {
                         <div className="mobil-kart-alan" style={{ gridColumn: '1 / -1' }}><span className="mobil-kart-etiket">Açıklama</span><span className="mobil-kart-deger">{i.aciklama || '-'}</span></div>
                       </div>
                       <div className="mobil-kart-islem">
+                        <button type="button" onClick={() => belgeModalAc(i)} style={{ padding: '7px 10px', backgroundColor: '#dbeafe', color: '#1d4ed8', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>📎 {kayitEvraklari(aktifSekme === 'gelirler' ? 'gelir' : 'gider', i.id).length || 'Belge'}</button>
                         <button type="button" onClick={() => duzenle(i)} style={{ padding: '7px 10px', backgroundColor: '#fef3c7', color: '#92400e', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>✏️ Düzenle</button>
                         <button type="button" onClick={() => sil(i.id)} style={{ padding: '7px 10px', backgroundColor: '#fee2e2', color: '#991b1b', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>🗑️ Sil</button>
                       </div>
@@ -4261,6 +4367,13 @@ export default function Dashboard() {
                           >
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
                               <button
+                                type="button"
+                                onClick={() => belgeModalAc(i)}
+                                style={{ padding: '6px 10px', backgroundColor: '#dbeafe', color: '#1d4ed8', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}
+                              >
+                                📎 {kayitEvraklari(aktifSekme === 'gelirler' ? 'gelir' : 'gider', i.id).length || 'Belge'}
+                              </button>
+                              <button
                                 onClick={() => duzenle(i)}
                                 style={{ padding: '6px 10px', backgroundColor: '#fef3c7', color: '#92400e', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}
                               >
@@ -4437,6 +4550,28 @@ export default function Dashboard() {
                 {excelAktarimYukleniyor ? '⏳ Aktarılıyor...' : `✅ ${excelAktarimSatirlari.length} Kaydı Aktar`}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+
+      {belgeModalKayit && (
+        <div onClick={() => setBelgeModalKayit(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '620px', maxHeight: '80vh', overflowY: 'auto', background: '#fff', borderRadius: '16px', padding: '24px', boxShadow: '0 24px 60px rgba(15,23,42,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '18px' }}>
+              <div><h3 style={{ margin: 0, color: '#0f172a', fontSize: '19px' }}>📎 Finans Evrakları</h3><p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '12px' }}>{belgeModalKayit.oge || '-'} • ₺{Number(belgeModalKayit.tutar || 0).toLocaleString('tr-TR')}</p></div>
+              <button type="button" onClick={() => setBelgeModalKayit(null)} style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', width: '34px', height: '34px', cursor: 'pointer', color: '#475569', fontSize: '18px' }}>×</button>
+            </div>
+            {belgeModalYukleniyor ? <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>Belgeler yükleniyor...</div> : (
+              kayitEvraklari(belgeModalKayit.kayitTipi, belgeModalKayit.id).length === 0 ?
+                <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '10px' }}>Bu kayda bağlı belge bulunmuyor.</div> :
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>{kayitEvraklari(belgeModalKayit.kayitTipi, belgeModalKayit.id).map((evrak) => (
+                  <div key={evrak.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: '10px', background: '#f8fafc' }}>
+                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: '700', color: '#334155', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {evrak.dosya_adi}</div><div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '3px' }}>{evrak.mime_type || 'Belge'} • {evrak.dosya_boyutu ? `${(evrak.dosya_boyutu / 1024 / 1024).toFixed(2)} MB` : '-'}</div></div>
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}><button type="button" onClick={() => belgeGoruntule(evrak)} style={{ padding: '7px 10px', border: 'none', borderRadius: '7px', background: '#dbeafe', color: '#1d4ed8', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>Görüntüle</button><button type="button" onClick={() => belgeSil(evrak)} style={{ padding: '7px 10px', border: 'none', borderRadius: '7px', background: '#fee2e2', color: '#991b1b', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>Sil</button></div>
+                  </div>
+                ))}</div>
+            )}
           </div>
         </div>
       )}
