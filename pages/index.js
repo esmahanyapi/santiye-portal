@@ -1343,6 +1343,44 @@ export default function Dashboard() {
 
   const buAyNet = buAyGelir - buAyGider;
 
+  // BU AY VADESİ GELEN ALACAK / BORÇ ÖZETİ
+  // Sadece vadesi bu ay olan ve henüz Ödendi / İptal durumuna geçmemiş kayıtlar dahil edilir.
+  const buAyAlacaklar = alacakBorclar.filter((item) => {
+    if (!item.vade_tarihi) return false;
+    if (item.tur !== 'Alacak') return false;
+    if (item.durum === 'Ödendi' || item.durum === 'İptal') return false;
+
+    const d = new Date(`${item.vade_tarihi}T00:00:00`);
+
+    return (
+      d.getFullYear() === buAyYil &&
+      d.getMonth() + 1 === buAyNo
+    );
+  });
+
+  const buAyBorclar = alacakBorclar.filter((item) => {
+    if (!item.vade_tarihi) return false;
+    if (item.tur !== 'Borç') return false;
+    if (item.durum === 'Ödendi' || item.durum === 'İptal') return false;
+
+    const d = new Date(`${item.vade_tarihi}T00:00:00`);
+
+    return (
+      d.getFullYear() === buAyYil &&
+      d.getMonth() + 1 === buAyNo
+    );
+  });
+
+  const buAyAlinacak = buAyAlacaklar.reduce(
+    (toplam, item) => toplam + Number(item.tutar || 0),
+    0
+  );
+
+  const buAyOdenecek = buAyBorclar.reduce(
+    (toplam, item) => toplam + Number(item.tutar || 0),
+    0
+  );
+
   function gruplaVeSirala(liste, alan) {
     const gruplar = {};
     liste.forEach((item) => {
@@ -2730,6 +2768,42 @@ export default function Dashboard() {
                       <div style={{ color: '#1e40af', fontSize: '12px', fontWeight: '700' }}>AYLIK NET</div>
                       <div style={{ color: buAyNet >= 0 ? '#2563eb' : '#dc2626', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
                         {dashboardFormat(buAyNet)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BU AY ÖDENECEK / ALINACAKLAR */}
+                  <div style={{ marginTop: '18px' }}>
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={{ color: '#0f172a', fontSize: '14px', fontWeight: '800' }}>💳 Bu Ay Ödenecek / Alınacaklar</div>
+                      <div style={{ marginTop: '4px', color: '#64748b', fontSize: '12px' }}>Vadesi bu ay olan, henüz tamamlanmamış alacak ve borçlar</div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                        gap: '14px'
+                      }}
+                    >
+                      <div style={{ padding: '16px', borderRadius: '12px', background: '#f0fdf4', border: '1px solid #dcfce7' }}>
+                        <div style={{ color: '#166534', fontSize: '12px', fontWeight: '700' }}>🟢 BU AY ALINACAK</div>
+                        <div style={{ color: '#059669', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
+                          {dashboardFormat(buAyAlinacak)}
+                        </div>
+                        <div style={{ marginTop: '5px', color: '#64748b', fontSize: '12px' }}>
+                          {buAyAlacaklar.length} kayıt
+                        </div>
+                      </div>
+
+                      <div style={{ padding: '16px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fee2e2' }}>
+                        <div style={{ color: '#991b1b', fontSize: '12px', fontWeight: '700' }}>🔴 BU AY ÖDENECEK</div>
+                        <div style={{ color: '#dc2626', fontSize: '22px', fontWeight: '800', marginTop: '6px' }}>
+                          {dashboardFormat(buAyOdenecek)}
+                        </div>
+                        <div style={{ marginTop: '5px', color: '#64748b', fontSize: '12px' }}>
+                          {buAyBorclar.length} kayıt
+                        </div>
                       </div>
                     </div>
                   </div>
