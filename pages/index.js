@@ -892,6 +892,19 @@ export default function Dashboard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  // HAKEDİŞTEN DOĞRUDAN İLGİLİ CARİ HESABA GEÇ
+  function cariFinansAc(cariId) {
+    const id = Number(cariId);
+    if (!id) return;
+    setAktifSekme('cariler');
+    setCariDetayId(id);
+    setHata('');
+    setMesaj('İlgili cari hesabın finansal özeti açıldı.');
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 50);
+  }
+
   function cariDuzenlemeyiIptalEt() {
     setCariDuzenlenenId(null);
     setCariForm({ ...cariFormBaslangic });
@@ -931,6 +944,14 @@ export default function Dashboard() {
       setHata('Lütfen bir cari/firma seçin.');
       return;
     }
+
+    // Hakedişin seçilen cari hesaba ve aynı projeye ait olduğundan emin ol.
+    const secilenCari = cariler.find((c) => Number(c.id) === Number(hakedisForm.cari_id));
+    if (!secilenCari) {
+      setHata('Seçilen cari hesap bu projede bulunamadı. Lütfen cari hesabı yeniden seçin.');
+      return;
+    }
+
     if (!hakedisForm.hakedis_no.trim() || !hakedisForm.tarih) {
       setHata('Hakediş No ve tarih zorunludur.');
       return;
@@ -3775,7 +3796,25 @@ export default function Dashboard() {
                         return (
                           <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '12px', fontWeight: '800' }}>{i.hakedis_no}</td>
-                            <td style={{ padding: '12px', fontWeight: '700' }}>{i.cariler?.ad || cariler.find(c => c.id === i.cari_id)?.ad || '-'}</td>
+                            <td style={{ padding: '12px' }}>
+                              <button
+                                type="button"
+                                onClick={() => cariFinansAc(i.cari_id)}
+                                title="Bu hakedişin bağlı olduğu cari hesabı aç"
+                                style={{
+                                  padding: 0,
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: '#1d4ed8',
+                                  cursor: 'pointer',
+                                  fontWeight: '800',
+                                  textAlign: 'left'
+                                }}
+                              >
+                                {i.cariler?.ad || cariler.find(c => Number(c.id) === Number(i.cari_id))?.ad || '-'}
+                              </button>
+                              <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '3px' }}>↗ Cari hesabı aç</div>
+                            </td>
                             <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>{i.tarih || '-'}</td>
                             <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>{i.vade_tarihi || '-'}</td>
                             <td style={{ padding: '12px', color: '#64748b' }}>{i.aciklama || '-'}</td>
