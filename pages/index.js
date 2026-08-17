@@ -80,6 +80,9 @@ export default function Dashboard() {
   const [duzenlenenKayitId, setDuzenlenenKayitId] = useState(null);
   const [filtreBaslangic, setFiltreBaslangic] = useState('');
   const [filtreBitis, setFiltreBitis] = useState('');
+  const [evrakArama, setEvrakArama] = useState('');
+  const [evrakTipFiltre, setEvrakTipFiltre] = useState('tumu');
+  const [evrakTurFiltre, setEvrakTurFiltre] = useState('tumu');
 
   // GELİR / GİDER LİSTE SIRALAMA
   const [siralaAlan, setSiralaAlan] = useState('tarih');
@@ -1203,6 +1206,50 @@ export default function Dashboard() {
         await supabase.storage.from('finans-evraklari').remove([dosyaYolu]);
         throw insertError;
       }
+    }
+  }
+
+  // EVRAK MERKEZİ
+  function evrakKayitBilgisi(evrak) {
+    const liste = evrak.kayit_tipi === 'gelir' ? gelirler : harcamalar;
+    const kayit = liste.find((x) => Number(x.id) === Number(evrak.kayit_id));
+    if (!kayit) return { oge: 'Kayıt bulunamadı', tarih: '', tutar: 0, kategori: '-' };
+    return {
+      oge: kayit.oge || kayit.aciklama || '-',
+      tarih: kayit.tarih || '',
+      tutar: Number(kayit.tutar || 0),
+      kategori: kayit.kategori || '-'
+    };
+  }
+
+  function evraklariFiltrele() {
+    const arama = evrakArama.trim().toLocaleLowerCase('tr-TR');
+    return finansEvraklari.filter((evrak) => {
+      if (evrakTipFiltre !== 'tumu' && evrak.kayit_tipi !== evrakTipFiltre) return false;
+      const bilgi = evrakKayitBilgisi(evrak);
+      const metin = `${evrak.dosya_adi || ''} ${bilgi.oge || ''} ${bilgi.kategori || ''}`.toLocaleLowerCase('tr-TR');
+      if (arama && !metin.includes(arama)) return false;
+      return true;
+    }).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }
+
+  async function evrakMerkeziniYenile() {
+    if (!seciliProje) return;
+    setBelgeModalYukleniyor(true);
+    try {
+      const { data, error } = await supabase
+        .from('finans_evraklari')
+        .select('*')
+        .eq('proje_id', seciliProje.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setFinansEvraklari(data || []);
+      setMesaj('Evrak listesi yenilendi.');
+      setHata('');
+    } catch (error) {
+      setHata('Evraklar yenilenemedi: ' + error.message);
+    } finally {
+      setBelgeModalYukleniyor(false);
     }
   }
 
@@ -2657,6 +2704,11 @@ export default function Dashboard() {
                   color: '#7c3aed'
                 },
                 {
+                  id: 'evraklar',
+                  label: '📎 Evrak Merkezi',
+                  color: '#0f766e'
+                },
+                {
                   id: 'cariler',
                   label: '👥 Cari Hesaplar',
                   color: '#0891b2'
@@ -2683,6 +2735,9 @@ export default function Dashboard() {
                     setFiltreAciklama('');
                     setFiltreBaslangic('');
                     setFiltreBitis('');
+                    setEvrakArama('');
+                    setEvrakTipFiltre('tumu');
+                    setEvrakTurFiltre('tumu');
                     setDuzenlenenKayitId(null);
                     setCariDuzenlenenId(null);
                     setCariForm({ ...cariFormBaslangic });
@@ -3176,6 +3231,85 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+              </div>
+            ) : aktifSekme === 'evraklar' ? (
+              /* EVRAK MERKEZİ */
+              <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(15,23,42,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '15px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, color: '#0f172a', fontSize: '20px' }}>📎 Evrak Merkezi</h3>
+                    <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: '13px' }}>Bu projedeki gelir ve giderlere bağlı tüm fatura, dekont ve makbuzları tek yerden yönetin.</p>
+                  </div>
+                  <button type="button" onClick={evrakMerkeziniYenile} disabled={belgeModalYukleniyor} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', background: '#fff', borderRadius: '8px', fontWeight: '700', cursor: belgeModalYukleniyor ? 'not-allowed' : 'pointer', color: '#334155' }}>
+                    {belgeModalYukleniyor ? '⏳ Yenileniyor...' : '↻ Yenile'}
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) minmax(160px, 1fr)', gap: '10px', marginBottom: '18px' }}>
+                  <input value={evrakArama} onChange={(e) => setEvrakArama(e.target.value)} placeholder="🔎 Dosya adı, firma/kişi veya kategori ara..." style={{ width: '100%', padding: '11px 13px', border: '1px solid #cbd5e1', borderRadius: '9px', background: '#fff' }} />
+                  <select value={evrakTipFiltre} onChange={(e) => setEvrakTipFiltre(e.target.value)} style={{ width: '100%', padding: '11px 13px', border: '1px solid #cbd5e1', borderRadius: '9px', background: '#fff' }}>
+                    <option value="tumu">Tüm Kayıtlar</option>
+                    <option value="gelir">📈 Sadece Gelirler</option>
+                    <option value="gider">📉 Sadece Giderler</option>
+                  </select>
+                </div>
+
+                {(() => {
+                  const liste = evraklariFiltrele();
+                  const toplamBoyut = liste.reduce((t, e) => t + Number(e.dosya_boyutu || 0), 0);
+                  const gelirBelge = finansEvraklari.filter((e) => e.kayit_tipi === 'gelir').length;
+                  const giderBelge = finansEvraklari.filter((e) => e.kayit_tipi === 'gider').length;
+                  return (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '18px' }}>
+                        <div style={{ padding: '14px', borderRadius: '10px', background: '#f0fdfa', border: '1px solid #ccfbf1' }}><div style={{ fontSize: '11px', color: '#0f766e', fontWeight: '800' }}>TOPLAM EVRAK</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#115e59', marginTop: '4px' }}>{finansEvraklari.length}</div></div>
+                        <div style={{ padding: '14px', borderRadius: '10px', background: '#f0fdf4', border: '1px solid #dcfce7' }}><div style={{ fontSize: '11px', color: '#166534', fontWeight: '800' }}>GELİR EVRAKI</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#15803d', marginTop: '4px' }}>{gelirBelge}</div></div>
+                        <div style={{ padding: '14px', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fee2e2' }}><div style={{ fontSize: '11px', color: '#991b1b', fontWeight: '800' }}>GİDER EVRAKI</div><div style={{ fontSize: '22px', fontWeight: '800', color: '#dc2626', marginTop: '4px' }}>{giderBelge}</div></div>
+                        <div style={{ padding: '14px', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '800' }}>SEÇİLİ LİSTE BOYUTU</div><div style={{ fontSize: '18px', fontWeight: '800', color: '#334155', marginTop: '6px' }}>{(toplamBoyut / 1024 / 1024).toFixed(2)} MB</div></div>
+                      </div>
+
+                      {liste.length === 0 ? (
+                        <div style={{ padding: '45px 20px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                          <div style={{ fontSize: '34px', marginBottom: '8px' }}>📂</div>
+                          <div style={{ fontWeight: '700', color: '#64748b' }}>{finansEvraklari.length === 0 ? 'Bu projede henüz evrak bulunmuyor.' : 'Arama kriterlerine uygun evrak bulunamadı.'}</div>
+                        </div>
+                      ) : (
+                        <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '850px', fontSize: '13px' }}>
+                            <thead>
+                              <tr style={{ background: '#f8fafc', color: '#475569', textAlign: 'left' }}>
+                                <th style={{ padding: '12px' }}>Evrak</th>
+                                <th style={{ padding: '12px' }}>Tür</th>
+                                <th style={{ padding: '12px' }}>Kayıt</th>
+                                <th style={{ padding: '12px' }}>Tarih</th>
+                                <th style={{ padding: '12px', textAlign: 'right' }}>Tutar</th>
+                                <th style={{ padding: '12px', textAlign: 'center' }}>İşlem</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {liste.map((evrak) => {
+                                const bilgi = evrakKayitBilgisi(evrak);
+                                return (
+                                  <tr key={evrak.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '12px' }}>
+                                      <div style={{ fontWeight: '700', color: '#334155', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {evrak.dosya_adi}</div>
+                                      <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>{evrak.mime_type || 'Belge'} • {evrak.dosya_boyutu ? `${(evrak.dosya_boyutu / 1024 / 1024).toFixed(2)} MB` : '-'}</div>
+                                    </td>
+                                    <td style={{ padding: '12px' }}><span style={{ padding: '5px 8px', borderRadius: '6px', background: evrak.kayit_tipi === 'gelir' ? '#dcfce7' : '#fee2e2', color: evrak.kayit_tipi === 'gelir' ? '#166534' : '#991b1b', fontWeight: '800', fontSize: '11px' }}>{evrak.kayit_tipi === 'gelir' ? 'GELİR' : 'GİDER'}</span></td>
+                                    <td style={{ padding: '12px' }}><div style={{ fontWeight: '700', color: '#334155' }}>{bilgi.oge}</div><div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>{bilgi.kategori}</div></td>
+                                    <td style={{ padding: '12px', color: '#64748b' }}>{bilgi.tarih ? new Date(`${bilgi.tarih}T00:00:00`).toLocaleDateString('tr-TR') : '-'}</td>
+                                    <td style={{ padding: '12px', textAlign: 'right', fontWeight: '800', color: evrak.kayit_tipi === 'gelir' ? '#166534' : '#991b1b', whiteSpace: 'nowrap' }}>₺{bilgi.tutar.toLocaleString('tr-TR')}</td>
+                                    <td style={{ padding: '12px', textAlign: 'center' }}><div style={{ display: 'flex', justifyContent: 'center', gap: '6px', flexWrap: 'wrap' }}><button type="button" onClick={() => belgeGoruntule(evrak)} style={{ padding: '7px 10px', border: 'none', borderRadius: '7px', background: '#dbeafe', color: '#1d4ed8', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>Görüntüle</button><button type="button" onClick={() => belgeSil(evrak)} style={{ padding: '7px 10px', border: 'none', borderRadius: '7px', background: '#fee2e2', color: '#991b1b', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>Sil</button></div></td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             ) : aktifSekme === 'finans' ? (
               /* ALACAK / BORÇ */
