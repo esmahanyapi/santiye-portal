@@ -133,6 +133,7 @@ export default function Dashboard() {
 
   const formBaslangic = {
     oge: '',
+    cari_id: '',
     makbuz_no: '',
     fatura_no: '',
     tarih: bugununTarihi(),
@@ -1522,6 +1523,26 @@ export default function Dashboard() {
     }
   }
 
+  function giderCariDegistir(deger) {
+    const secilen = cariler.find((c) => String(c.id) === String(deger));
+    setForm({
+      ...form,
+      cari_id: deger || '',
+      aciklama: secilen?.ad || form.aciklama
+    });
+  }
+
+  function giderCariMetinDegistir(deger) {
+    const eslesen = cariler.find(
+      (c) => String(c.ad || '').trim().toLocaleLowerCase('tr-TR') === String(deger || '').trim().toLocaleLowerCase('tr-TR')
+    );
+    setForm({
+      ...form,
+      aciklama: deger,
+      cari_id: eslesen?.id || ''
+    });
+  }
+
   // GELİR / GİDER KAYDET / GÜNCELLE
   async function kaydet(event) {
     event.preventDefault();
@@ -1534,10 +1555,20 @@ export default function Dashboard() {
     const tablo = aktifSekme === 'gelirler' ? 'gelirler' : 'harcamalar';
     const kayitTipi = aktifSekme === 'gelirler' ? 'gelir' : 'gider';
     const kayit = {
-      oge: form.oge.trim(), makbuz_no: form.makbuz_no.trim(), fatura_no: form.fatura_no.trim(),
-      tarih: form.tarih, kategori: form.kategori.trim(), aciklama: form.aciklama.trim(), tutar,
+      oge: form.oge.trim(),
+      makbuz_no: form.makbuz_no.trim(),
+      fatura_no: form.fatura_no.trim(),
+      tarih: form.tarih,
+      kategori: form.kategori.trim(),
+      aciklama: form.aciklama.trim(),
+      tutar,
       proje_id: seciliProje.id,
-      ...(aktifSekme === 'giderler' ? { odeme_kaynagi: form.odeme_kaynagi || 'Kasa' } : {})
+      ...(aktifSekme === 'giderler'
+        ? {
+            odeme_kaynagi: form.odeme_kaynagi || 'Kasa',
+            cari_id: form.cari_id ? Number(form.cari_id) : null
+          }
+        : {})
     };
 
     let error = null; let kayitId = duzenlenenKayitId;
@@ -1570,6 +1601,7 @@ export default function Dashboard() {
   function duzenle(kayit) {
     setForm({
       oge: kayit.oge || '',
+      cari_id: kayit.cari_id || '',
       makbuz_no: kayit.makbuz_no || '',
       fatura_no: kayit.fatura_no || '',
       tarih: kayit.tarih || bugununTarihi(),
@@ -4358,7 +4390,8 @@ export default function Dashboard() {
                   <div
                     style={{
                       flex: 1.8,
-                      minWidth: '200px'
+                      minWidth: '220px',
+                      position: 'relative'
                     }}
                   >
                     <label
@@ -4374,24 +4407,57 @@ export default function Dashboard() {
                     </label>
 
                     <input
-                      placeholder="Detay girin..."
+                      list="gider-cari-listesi"
+                      placeholder="Firma seçin veya serbestçe yazın..."
                       value={form.aciklama}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          aciklama: e.target.value
-                        })
-                      }
+                      onChange={(e) => giderCariMetinDegistir(e.target.value)}
                       style={{
                         width: '100%',
                         boxSizing: 'border-box',
-                        padding: '10px',
-                        border: '1px solid #cbd5e1',
+                        padding: '10px 36px 10px 10px',
+                        border: form.cari_id ? '1px solid #22c55e' : '1px solid #cbd5e1',
                         borderRadius: '8px',
                         outline: 'none',
                         background: '#fff'
                       }}
                     />
+
+                    <datalist id="gider-cari-listesi">
+                      {cariler.filter((c) => c.aktif !== false).map((c) => (
+                        <option key={c.id} value={c.ad}>
+                          {c.tip === 'Kişi' ? 'Kişi' : 'Firma'}
+                        </option>
+                      ))}
+                    </datalist>
+
+                    {form.cari_id && (
+                      <button
+                        type="button"
+                        title="Cari bağlantısını kaldır"
+                        onClick={() => setForm({ ...form, cari_id: '' })}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          bottom: '8px',
+                          width: '24px',
+                          height: '24px',
+                          border: 'none',
+                          borderRadius: '50%',
+                          background: '#dcfce7',
+                          color: '#15803d',
+                          cursor: 'pointer',
+                          fontWeight: '800'
+                        }}
+                      >
+                        ✓
+                      </button>
+                    )}
+
+                    {form.cari_id && (
+                      <div style={{ marginTop: '5px', fontSize: '11px', color: '#15803d', fontWeight: '700' }}>
+                        🔗 Cari hesabına bağlı: {cariler.find((c) => String(c.id) === String(form.cari_id))?.ad || ''}
+                      </div>
+                    )}
                   </div>
 
                   <div
