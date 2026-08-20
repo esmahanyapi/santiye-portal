@@ -1708,6 +1708,8 @@ export default function Dashboard() {
           'Proje / Mühendislik',
           'Hafriyat',
           'İş Makinesi',
+          'Kuyu Temel',
+          'Fore Kazık / Jetgrout',
           'Nakliye',
           'Asansör',
           'İzolasyon',
