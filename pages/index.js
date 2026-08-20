@@ -1716,6 +1716,8 @@ export default function Dashboard() {
           'Şantiye Giderleri',
           'İş Makinesi',
           'Personel Maaşları',
+          'Yapı Denetim',
+          'Test Laboratuvarı',
           'Belediye / Ruhsat / Harç',
           'Vergi / SGK',
           'Hukuk / Noter',
