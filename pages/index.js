@@ -213,7 +213,7 @@ export default function Dashboard() {
 
     oturumKontrol();
 
-  return () => {
+    return () => {
       mounted = false;
     };
   }, [router]);
@@ -1696,7 +1696,7 @@ export default function Dashboard() {
 
   const kategoriSecenekleri =
     aktifSekme === 'gelirler'
-      ? ['Hakediş', 'Daire Satışı', 'Kapora', 'Kira', 'Diğer']
+      ? ['Hakediş', 'Daire Satışı', 'Kapora', 'Kira', 'Arsa Sahibi', 'Diğer']
       : [
           'Kaba İnşaat Malzeme',
           'Kaba İnşaat İşçilik',
@@ -1707,12 +1707,18 @@ export default function Dashboard() {
           'Harita',
           'Proje / Mühendislik',
           'Hafriyat',
+          'İş Makinesi',
           'Nakliye',
           'Asansör',
           'İzolasyon',
           'Çatı',
           'Peyzaj',
           'Şantiye Giderleri',
+          'Personel Maaşları',
+          'Yapı Denetim',
+          'Test Laboratuvarı',
+          'Kuyu Temel',
+          'Fore Kazık / Jetgrout',
           'Belediye / Ruhsat / Harç',
           'Vergi / SGK',
           'Hukuk / Noter',
@@ -2321,17 +2327,13 @@ export default function Dashboard() {
 
   // ALACAK / BORÇ SAYFASI ÖZETİ
   const finansAktifKayitlar = alacakBorclar.filter((i) => i.durum !== 'İptal');
-  const toplamAlacak = finansAktifKayitlar
-    .filter((i) => i.tur === 'Alacak')
+  const toplamAlacak = finansAktifKayitlar.filter((i) => i.tur === 'Alacak')
     .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
-  const toplamBorc = finansAktifKayitlar
-    .filter((i) => i.tur === 'Borç')
+  const toplamBorc = finansAktifKayitlar.filter((i) => i.tur === 'Borç')
     .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
-  const bekleyenAlacak = finansAktifKayitlar
-    .filter((i) => i.tur === 'Alacak' && i.durum !== 'Ödendi')
+  const bekleyenAlacak = finansAktifKayitlar.filter((i) => i.tur === 'Alacak' && i.durum !== 'Ödendi')
     .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
-  const bekleyenBorc = finansAktifKayitlar
-    .filter((i) => i.tur === 'Borç' && i.durum !== 'Ödendi')
+  const bekleyenBorc = finansAktifKayitlar.filter((i) => i.tur === 'Borç' && i.durum !== 'Ödendi')
     .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
   const netFinansBakiye = toplamAlacak - toplamBorc;
 
@@ -3668,34 +3670,6 @@ export default function Dashboard() {
                   border: '1px solid #e2e8f0'
                 }}
               >
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px', marginBottom: '24px' }}>
-                  <div style={{ padding: '18px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #bbf7d0' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#047857', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Toplam Alacak</div>
-                    <div style={{ marginTop: '7px', fontSize: '24px', fontWeight: '900', color: '#059669' }}>₺{toplamAlacak.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                    <div style={{ marginTop: '4px', fontSize: '11px', color: '#64748b' }}>İptal edilen kayıtlar hariç</div>
-                  </div>
-                  <div style={{ padding: '18px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fecaca' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#b91c1c', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Toplam Borç</div>
-                    <div style={{ marginTop: '7px', fontSize: '24px', fontWeight: '900', color: '#dc2626' }}>₺{toplamBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                    <div style={{ marginTop: '4px', fontSize: '11px', color: '#64748b' }}>İptal edilen kayıtlar hariç</div>
-                  </div>
-                  <div style={{ padding: '18px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bekleyen Alacak</div>
-                    <div style={{ marginTop: '7px', fontSize: '24px', fontWeight: '900', color: '#2563eb' }}>₺{bekleyenAlacak.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                    <div style={{ marginTop: '4px', fontSize: '11px', color: '#64748b' }}>Ödenmemiş alacaklar</div>
-                  </div>
-                  <div style={{ padding: '18px', borderRadius: '12px', background: '#fff7ed', border: '1px solid #fed7aa' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bekleyen Borç</div>
-                    <div style={{ marginTop: '7px', fontSize: '24px', fontWeight: '900', color: '#ea580c' }}>₺{bekleyenBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                    <div style={{ marginTop: '4px', fontSize: '11px', color: '#64748b' }}>Ödenmemiş borçlar</div>
-                  </div>
-                  <div style={{ padding: '18px', borderRadius: '12px', background: netFinansBakiye >= 0 ? '#f0fdf4' : '#fff1f2', border: `1px solid ${netFinansBakiye >= 0 ? '#bbf7d0' : '#fecdd3'}` }}>
-                    <div style={{ fontSize: '11px', fontWeight: '800', color: netFinansBakiye >= 0 ? '#166534' : '#be123c', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Net Bakiye</div>
-                    <div style={{ marginTop: '7px', fontSize: '24px', fontWeight: '900', color: netFinansBakiye >= 0 ? '#16a34a' : '#e11d48' }}>{netFinansBakiye >= 0 ? '+' : '-'}₺{Math.abs(netFinansBakiye).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                    <div style={{ marginTop: '4px', fontSize: '11px', color: '#64748b' }}>Alacak − Borç</div>
-                  </div>
-                </div>
-
                 <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#0f172a', fontSize: '18px', fontWeight: '700' }}>
                   {duzenlenenKayitId ? '✏️ Alacak / Borç Düzenle' : '💳 Yeni Alacak / Borç Kaydı'}
                 </h3>
