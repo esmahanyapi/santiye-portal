@@ -213,21 +213,6 @@ export default function Dashboard() {
 
     oturumKontrol();
 
-    const finansAktifKayitlar = alacakBorclar.filter((i) => i.durum !== 'İptal');
-  const toplamAlacak = finansAktifKayitlar
-    .filter((i) => i.tur === 'Alacak')
-    .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
-  const toplamBorc = finansAktifKayitlar
-    .filter((i) => i.tur === 'Borç')
-    .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
-  const bekleyenAlacak = finansAktifKayitlar
-    .filter((i) => i.tur === 'Alacak' && i.durum !== 'Ödendi')
-    .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
-  const bekleyenBorc = finansAktifKayitlar
-    .filter((i) => i.tur === 'Borç' && i.durum !== 'Ödendi')
-    .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
-  const netFinansBakiye = toplamAlacak - toplamBorc;
-
   return () => {
       mounted = false;
     };
@@ -2333,6 +2318,22 @@ export default function Dashboard() {
       .reduce((t, m) => t + Number(m.tutar || 0), 0);
     return but > 0 && ger > but;
   }).length;
+
+  // ALACAK / BORÇ SAYFASI ÖZETİ
+  const finansAktifKayitlar = alacakBorclar.filter((i) => i.durum !== 'İptal');
+  const toplamAlacak = finansAktifKayitlar
+    .filter((i) => i.tur === 'Alacak')
+    .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
+  const toplamBorc = finansAktifKayitlar
+    .filter((i) => i.tur === 'Borç')
+    .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
+  const bekleyenAlacak = finansAktifKayitlar
+    .filter((i) => i.tur === 'Alacak' && i.durum !== 'Ödendi')
+    .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
+  const bekleyenBorc = finansAktifKayitlar
+    .filter((i) => i.tur === 'Borç' && i.durum !== 'Ödendi')
+    .reduce((toplam, i) => toplam + Number(i.tutar || 0), 0);
+  const netFinansBakiye = toplamAlacak - toplamBorc;
 
   if (!isClient) {    return (
       <div
