@@ -3670,6 +3670,29 @@ export default function Dashboard() {
                   border: '1px solid #e2e8f0'
                 }}
               >
+                <div id='finans-ozet-kartlari' style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '24px' }}>
+                  <div style={{ padding: '16px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #bbf7d0' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>TOPLAM ALACAK</div>
+                    <div style={{ marginTop: '6px', fontSize: '23px', fontWeight: '900', color: '#059669' }}>₺{toplamAlacak.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  </div>
+                  <div style={{ padding: '16px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fecaca' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#b91c1c' }}>TOPLAM BORÇ</div>
+                    <div style={{ marginTop: '6px', fontSize: '23px', fontWeight: '900', color: '#dc2626' }}>₺{toplamBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  </div>
+                  <div style={{ padding: '16px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>BEKLEYEN ALACAK</div>
+                    <div style={{ marginTop: '6px', fontSize: '23px', fontWeight: '900', color: '#2563eb' }}>₺{bekleyenAlacak.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  </div>
+                  <div style={{ padding: '16px', borderRadius: '12px', background: '#fff7ed', border: '1px solid #fed7aa' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#c2410c' }}>BEKLEYEN BORÇ</div>
+                    <div style={{ marginTop: '6px', fontSize: '23px', fontWeight: '900', color: '#ea580c' }}>₺{bekleyenBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  </div>
+                  <div style={{ padding: '16px', borderRadius: '12px', background: netFinansBakiye >= 0 ? '#f0fdf4' : '#fff1f2', border: `1px solid ${netFinansBakiye >= 0 ? '#bbf7d0' : '#fecdd3'}` }}>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: netFinansBakiye >= 0 ? '#166534' : '#be123c' }}>NET BAKİYE</div>
+                    <div style={{ marginTop: '6px', fontSize: '23px', fontWeight: '900', color: netFinansBakiye >= 0 ? '#16a34a' : '#e11d48' }}>{netFinansBakiye >= 0 ? '+' : '-'}₺{Math.abs(netFinansBakiye).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  </div>
+                </div>
+
                 <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#0f172a', fontSize: '18px', fontWeight: '700' }}>
                   {duzenlenenKayitId ? '✏️ Alacak / Borç Düzenle' : '💳 Yeni Alacak / Borç Kaydı'}
                 </h3>
