@@ -1696,7 +1696,7 @@ export default function Dashboard() {
 
   const kategoriSecenekleri =
     aktifSekme === 'gelirler'
-      ? ['Hakediş', 'Daire Satışı', 'Kapora', 'Kira', 'Diğer']
+      ? ['Hakediş', 'Daire Satışı', 'Kapora', 'Kira', 'Arsa Sahibi', 'Diğer']
       : [
           'Kaba İnşaat Malzeme',
           'Kaba İnşaat İşçilik',
