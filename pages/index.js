@@ -1543,6 +1543,31 @@ export default function Dashboard() {
     });
   }
 
+  // MAKBUZ / FATURA NUMARASI MÜKERRER KONTROLÜ
+  function numaraNormalizeEt(deger) {
+    return String(deger || '').trim().toLocaleLowerCase('tr-TR').replace(/\s+/g, '');
+  }
+
+  function ayniNumarayiBul(numara, alan) {
+    const aranan = numaraNormalizeEt(numara);
+    if (!aranan) return null;
+
+    const tumKayitlar = [
+      ...gelirler.map((kayit) => ({ ...kayit, __kaynak: 'gelirler' })),
+      ...harcamalar.map((kayit) => ({ ...kayit, __kaynak: 'harcamalar' }))
+    ];
+
+    return tumKayitlar.find((kayit) => {
+      if (
+        duzenlenenKayitId &&
+        kayit.__kaynak === (aktifSekme === 'gelirler' ? 'gelirler' : 'harcamalar') &&
+        String(kayit.id) === String(duzenlenenKayitId)
+      ) return false;
+
+      return numaraNormalizeEt(kayit[alan]) === aranan;
+    }) || null;
+  }
+
   // GELİR / GİDER KAYDET / GÜNCELLE
   async function kaydet(event) {
     event.preventDefault();
@@ -1550,6 +1575,18 @@ export default function Dashboard() {
     const tutar = Number(form.tutar);
     if (!form.tarih || !form.oge.trim() || !form.kategori.trim()) return setHata('Tarih, Öğe/Firma/Kişi ve Kategori alanları zorunludur.');
     if (!Number.isFinite(tutar) || tutar <= 0) return setHata('Lütfen geçerli ve 0’dan büyük bir tutar girin.');
+
+    const tekrarMakbuz = ayniNumarayiBul(form.makbuz_no, 'makbuz_no');
+    if (tekrarMakbuz) {
+      const kaynak = tekrarMakbuz.__kaynak === 'gelirler' ? 'gelir kaydında' : 'gider kaydında';
+      return setHata(`⚠️ Bu makbuz/dekont no daha önce kullanıldı: "${tekrarMakbuz.makbuz_no}". Aynı numara ${kaynak} zaten kayıtlı (${tekrarMakbuz.tarih || 'tarih bilgisi yok'} - ${tekrarMakbuz.oge || 'öğe bilgisi yok'}).`);
+    }
+
+    const tekrarFatura = ayniNumarayiBul(form.fatura_no, 'fatura_no');
+    if (tekrarFatura) {
+      const kaynak = tekrarFatura.__kaynak === 'gelirler' ? 'gelir kaydında' : 'gider kaydında';
+      return setHata(`⚠️ Bu fatura no daha önce kullanıldı: "${tekrarFatura.fatura_no}". Aynı numara ${kaynak} zaten kayıtlı (${tekrarFatura.tarih || 'tarih bilgisi yok'} - ${tekrarFatura.oge || 'öğe bilgisi yok'}).`);
+    }
 
     setHata(''); setMesaj(''); setBelgeYukleniyor(true);
     const tablo = aktifSekme === 'gelirler' ? 'gelirler' : 'harcamalar';
