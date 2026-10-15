@@ -313,10 +313,10 @@ export default function Dashboard() {
       .eq('proje_id', seciliProje.id)
       .order('vade_tarihi', { ascending: true, nullsFirst: false });
 
+    // Cari hesaplar proje bağımsız, tüm projelerde ortak kullanılır.
     const { data: c, error: cError } = await supabase
       .from('cariler')
       .select('*')
-      .eq('proje_id', seciliProje.id)
       .order('ad', { ascending: true });
 
     const { data: hd, error: hdError } = await supabase
@@ -833,13 +833,19 @@ export default function Dashboard() {
   async function cariKaydet(event) {
     event.preventDefault();
 
-    if (!seciliProje) {
-      setHata('Önce bir proje seçmelisiniz.');
+    if (!cariForm.ad.trim()) {
+      setHata('Firma / kişi adı zorunludur.');
       return;
     }
 
-    if (!cariForm.ad.trim()) {
-      setHata('Firma / kişi adı zorunludur.');
+    // Aynı firma/kişi farklı projelerde yeniden açılmasın.
+    const normalizeCariAdi = (deger) => String(deger || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('tr-TR');
+    const ayniCari = cariler.find((c) =>
+      normalizeCariAdi(c.ad) === normalizeCariAdi(cariForm.ad) &&
+      String(c.id) !== String(cariDuzenlenenId || '')
+    );
+    if (ayniCari) {
+      setHata(`Bu cari hesap zaten kayıtlı: ${ayniCari.ad}. Lütfen mevcut kaydı seçin veya düzenleyin.`);
       return;
     }
 
@@ -857,7 +863,7 @@ export default function Dashboard() {
       adres: cariForm.adres.trim(),
       notlar: cariForm.notlar.trim(),
       aktif: cariForm.aktif,
-      proje_id: seciliProje.id
+      proje_id: null
     };
 
     let error = null;
@@ -866,8 +872,7 @@ export default function Dashboard() {
       const sonuc = await supabase
         .from('cariler')
         .update(kayit)
-        .eq('id', cariDuzenlenenId)
-        .eq('proje_id', seciliProje.id);
+        .eq('id', cariDuzenlenenId);
       error = sonuc.error;
     } else {
       const sonuc = await supabase
@@ -920,8 +925,7 @@ export default function Dashboard() {
     const { error } = await supabase
       .from('cariler')
       .delete()
-      .eq('id', id)
-      .eq('proje_id', seciliProje.id);
+      .eq('id', id);
 
     if (error) {
       setHata('Cari silinemedi: ' + error.message);
@@ -964,7 +968,6 @@ export default function Dashboard() {
         .from('cariler')
         .select('id, ad')
         .eq('id', hakedisKaydi.cari_id)
-        .eq('proje_id', seciliProje.id)
         .maybeSingle();
       cariAdi = cariKaydi?.ad || '';
     }
@@ -3820,7 +3823,7 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '15px', flexWrap: 'wrap', marginBottom: '20px' }}>
                   <div>
                     <h3 style={{ margin: 0, color: '#0f172a', fontSize: '20px' }}>{cariDuzenlenenId ? '✏️ Cari Düzenle' : '👥 Cari Hesaplar'}</h3>
-                    <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Firma ve kişi kayıtlarını proje bazında yönetin.</p>
+                    <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Tek bir genel cari listesi kullanın; kayıtlar tüm projelerde ortaktır.</p>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ padding: '9px 12px', borderRadius: '8px', background: '#ecfeff', color: '#0e7490', fontWeight: '800' }}>{cariler.length} Cari</span>
