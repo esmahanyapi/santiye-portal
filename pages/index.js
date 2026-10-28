@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
+import Head from 'next/head';
 import { supabase } from '../lib/supabase';
 
 import * as XLSX from 'xlsx';
@@ -7,6 +8,24 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 export default function Dashboard() {
   const router = useRouter();
+
+  // PWA kurulumu: özel/finansal verileri önbelleğe almadan servis çalışanını kaydet.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+
+    const registerServiceWorker = () => {
+      navigator.serviceWorker.register('/sw.js').catch((error) => {
+        console.error('Esmahan Portal PWA servis çalışanı kaydedilemedi:', error);
+      });
+    };
+
+    if (document.readyState === 'complete') {
+      registerServiceWorker();
+    } else {
+      window.addEventListener('load', registerServiceWorker, { once: true });
+      return () => window.removeEventListener('load', registerServiceWorker);
+    }
+  }, []);
 
   const [isClient, setIsClient] = useState(false);
   const [projeler, setProjeler] = useState([]);
@@ -2395,6 +2414,19 @@ export default function Dashboard() {
 
   return (
     <>
+      <Head>
+        <title>Esmahan Portal</title>
+        <meta name="description" content="Esmahan Yapı İnşaat proje, şantiye ve finans yönetim portalı." />
+        <meta name="theme-color" content="#0f172a" />
+        <meta name="application-name" content="Esmahan Portal" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="Esmahan Portal" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+      </Head>
 
       <style jsx global>{`
         * { box-sizing: border-box; }
