@@ -30,6 +30,10 @@ export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
   const [projeler, setProjeler] = useState([]);
   const [seciliProje, setSeciliProje] = useState(null);
+  // Şirket ana sayfasında tüm yetkili projelerin finansal özetleri
+  const [projeOzetleri, setProjeOzetleri] = useState([]);
+  const [projeOzetleriYukleniyor, setProjeOzetleriYukleniyor] = useState(false);
+  const [projeOzetleriHata, setProjeOzetleriHata] = useState('');
   const [yeniProjeAdi, setYeniProjeAdi] = useState('');
   const [projeDuzenlemeAcik, setProjeDuzenlemeAcik] = useState(false);
   const [projeDuzenlenen, setProjeDuzenlenen] = useState(null);
@@ -243,6 +247,78 @@ export default function Dashboard() {
       verileriGetir();
     }
   }, [seciliProje]);
+
+  // ANA SAYFA: tüm izinli projelerin gerçekleşen gelir/gider ve vadesi gelen
+  // tahsilat/ödeme özetlerini tek seferde getir. Bu özet seçili projeyle sınırlı değildir.
+  useEffect(() => {
+    if (!isClient || projeler.length === 0) {
+      setProjeOzetleri([]);
+      setProjeOzetleriHata('');
+      setProjeOzetleriYukleniyor(false);
+      return;
+    }
+
+    let iptal = false;
+    async function tumProjeOzetleriniGetir() {
+      setProjeOzetleriYukleniyor(true);
+      setProjeOzetleriHata('');
+      try {
+        const projeIdleri = projeler.map((p) => p.id);
+        const [gelirSonuc, giderSonuc, finansSonuc] = await Promise.all([
+          supabase.from('gelirler').select('proje_id, tutar, tarih').in('proje_id', projeIdleri),
+          supabase.from('harcamalar').select('proje_id, tutar, tarih').in('proje_id', projeIdleri),
+          supabase.from('alacak_borclar').select('proje_id, tur, tutar, tarih, vade_tarihi, durum').in('proje_id', projeIdleri)
+        ]);
+
+        if (gelirSonuc.error) throw gelirSonuc.error;
+        if (giderSonuc.error) throw giderSonuc.error;
+        if (finansSonuc.error) throw finansSonuc.error;
+
+        const simdi = new Date();
+        const buAyAnahtari = `${simdi.getFullYear()}-${String(simdi.getMonth() + 1).padStart(2, '0')}`;
+        const gelirKayitlari = gelirSonuc.data || [];
+        const giderKayitlari = giderSonuc.data || [];
+        const finansKayitlari = finansSonuc.data || [];
+        const tutarTopla = (liste) => liste.reduce((toplam, item) => toplam + Number(item.tutar || 0), 0);
+        const aktifFinansKaydi = (item) => item.durum !== 'Ödendi' && item.durum !== 'İptal';
+
+        const ozetler = projeler.map((proje) => {
+          const projeGelirleri = gelirKayitlari.filter((item) => Number(item.proje_id) === Number(proje.id));
+          const projeGiderleri = giderKayitlari.filter((item) => Number(item.proje_id) === Number(proje.id));
+          const projeFinansKayitlari = finansKayitlari.filter((item) => Number(item.proje_id) === Number(proje.id));
+          const buAyFinans = projeFinansKayitlari.filter((item) =>
+            item.vade_tarihi && String(item.vade_tarihi).slice(0, 7) === buAyAnahtari && aktifFinansKaydi(item)
+          );
+          const buAyGelir = tutarTopla(projeGelirleri.filter((item) => item.tarih && String(item.tarih).slice(0, 7) === buAyAnahtari));
+          const buAyGider = tutarTopla(projeGiderleri.filter((item) => item.tarih && String(item.tarih).slice(0, 7) === buAyAnahtari));
+          return {
+            proje,
+            toplamGelir: tutarTopla(projeGelirleri),
+            toplamGider: tutarTopla(projeGiderleri),
+            netBakiye: tutarTopla(projeGelirleri) - tutarTopla(projeGiderleri),
+            buAyGelir,
+            buAyGider,
+            buAyNet: buAyGelir - buAyGider,
+            buAyAlinacak: tutarTopla(buAyFinans.filter((item) => item.tur === 'Alacak')),
+            buAyOdenecek: tutarTopla(buAyFinans.filter((item) => item.tur === 'Borç')),
+            buAyAlacakAdet: buAyFinans.filter((item) => item.tur === 'Alacak').length,
+            buAyBorcAdet: buAyFinans.filter((item) => item.tur === 'Borç').length,
+            gecikenAlacak: tutarTopla(projeFinansKayitlari.filter((item) => item.tur === 'Alacak' && item.vade_tarihi && String(item.vade_tarihi) < `${buAyAnahtari}-01` && aktifFinansKaydi(item))),
+            gecikenBorc: tutarTopla(projeFinansKayitlari.filter((item) => item.tur === 'Borç' && item.vade_tarihi && String(item.vade_tarihi) < `${buAyAnahtari}-01` && aktifFinansKaydi(item)))
+          };
+        });
+        if (!iptal) setProjeOzetleri(ozetler);
+      } catch (error) {
+        console.error('Ana sayfa proje özetleri yüklenemedi:', error);
+        if (!iptal) setProjeOzetleriHata('Proje özetleri yüklenemedi. Lütfen sayfayı yenileyin.');
+      } finally {
+        if (!iptal) setProjeOzetleriYukleniyor(false);
+      }
+    }
+
+    tumProjeOzetleriniGetir();
+    return () => { iptal = true; };
+  }, [projeler, isClient]);
 
   // PROJELERİ GETİR
   async function projeleriGetir() {
@@ -3208,6 +3284,85 @@ export default function Dashboard() {
             {/* ÖZET */}
             {aktifSekme === 'ozet' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+                {/* ŞİRKET GENELİ: TÜM PROJELERİN ÖZETİ */}
+                <section style={{ background: '#ffffff', padding: '22px', borderRadius: '18px', border: '1px solid #e2e8f0', boxShadow: '0 5px 18px rgba(15,23,42,0.045)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap', marginBottom: '18px' }}>
+                    <div>
+                      <h2 style={{ margin: 0, color: '#0f172a', fontSize: '22px', fontWeight: '850' }}>Şirket Genel Görünümü</h2>
+                      <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: '13px' }}>Tüm projelerin gerçekleşen gelir-gideri ve bu ayki tahsilat/ödeme planı</p>
+                    </div>
+                    <div style={{ padding: '7px 11px', borderRadius: '9px', background: '#f1f5f9', color: '#475569', fontSize: '12px', fontWeight: '750' }}>{projeOzetleri.length} proje</div>
+                  </div>
+
+                  {projeOzetleriHata ? (
+                    <div role="alert" style={{ padding: '13px 15px', borderRadius: '10px', background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: '13px' }}>{projeOzetleriHata}</div>
+                  ) : projeOzetleriYukleniyor ? (
+                    <div style={{ padding: '28px 12px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>Tüm projelerin finansal özetleri yükleniyor...</div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+                        {[
+                          { label: 'Toplam Gerçekleşen Gelir', value: projeOzetleri.reduce((t, p) => t + p.toplamGelir, 0), color: '#047857', bg: '#ecfdf5', border: '#a7f3d0' },
+                          { label: 'Toplam Gerçekleşen Gider', value: projeOzetleri.reduce((t, p) => t + p.toplamGider, 0), color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+                          { label: 'Gelir − Gider Farkı', value: projeOzetleri.reduce((t, p) => t + p.netBakiye, 0), color: projeOzetleri.reduce((t, p) => t + p.netBakiye, 0) >= 0 ? '#1d4ed8' : '#b91c1c', bg: '#eff6ff', border: '#bfdbfe' },
+                          { label: 'Bu Ay Gerçekleşen Gelir', value: projeOzetleri.reduce((t, p) => t + p.buAyGelir, 0), color: '#047857', bg: '#f0fdf4', border: '#bbf7d0' },
+                          { label: 'Bu Ay Gerçekleşen Gider', value: projeOzetleri.reduce((t, p) => t + p.buAyGider, 0), color: '#b91c1c', bg: '#fff1f2', border: '#fecdd3' },
+                          { label: 'Bu Ay Alınacak', value: projeOzetleri.reduce((t, p) => t + p.buAyAlinacak, 0), color: '#047857', bg: '#ecfdf5', border: '#a7f3d0' },
+                          { label: 'Bu Ay Ödenecek', value: projeOzetleri.reduce((t, p) => t + p.buAyOdenecek, 0), color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' }
+                        ].map((kart) => (
+                          <div key={kart.label} style={{ minWidth: 0, padding: '14px', borderRadius: '12px', background: kart.bg, border: `1px solid ${kart.border}` }}>
+                            <div style={{ color: '#64748b', fontSize: '10px', lineHeight: 1.4, fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.35px' }}>{kart.label}</div>
+                            <div style={{ marginTop: '7px', color: kart.color, fontSize: 'clamp(17px, 2vw, 22px)', lineHeight: 1.25, fontWeight: '850', overflowWrap: 'anywhere' }}>{dashboardFormat(kart.value)}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
+                        {projeOzetleri.map((ozet) => (
+                          <button key={ozet.proje.id} type="button" onClick={() => { setSeciliProje(ozet.proje); window.scrollTo({ top: 0, behavior: 'smooth' }); }} style={{ width: '100%', textAlign: 'left', padding: '16px', borderRadius: '13px', border: Number(seciliProje?.id) === Number(ozet.proje.id) ? '1px solid #93c5fd' : '1px solid #e2e8f0', background: Number(seciliProje?.id) === Number(ozet.proje.id) ? '#f8fbff' : '#ffffff', cursor: 'pointer', color: 'inherit', boxShadow: Number(seciliProje?.id) === Number(ozet.proje.id) ? '0 0 0 2px rgba(59,130,246,0.07)' : 'none' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '13px' }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ color: '#0f172a', fontSize: '15px', fontWeight: '850', overflowWrap: 'anywhere' }}>{ozet.proje.ad || `Proje #${ozet.proje.id}`}</div>
+                                <div style={{ color: '#64748b', fontSize: '11px', marginTop: '4px' }}>Projeyi seçerek mevcut ayrıntı ekranına geçebilirsiniz</div>
+                              </div>
+                              <span aria-hidden="true" style={{ flexShrink: 0, color: '#64748b', fontSize: '18px' }}>›</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: '12px' }}>
+                              {[
+                                { label: 'Toplam Gelir', value: ozet.toplamGelir, color: '#047857' },
+                                { label: 'Toplam Gider', value: ozet.toplamGider, color: '#b91c1c' },
+                                { label: 'Gelir − Gider', value: ozet.netBakiye, color: ozet.netBakiye >= 0 ? '#1d4ed8' : '#b91c1c' },
+                                { label: 'Aylık Gelir', value: ozet.buAyGelir, color: '#047857' },
+                                { label: 'Aylık Gider', value: ozet.buAyGider, color: '#b91c1c' },
+                                { label: 'Bu Ay Alınacak', value: ozet.buAyAlinacak, color: '#047857' },
+                                { label: 'Bu Ay Ödenecek', value: ozet.buAyOdenecek, color: '#b91c1c' }
+                              ].map((metrik) => (
+                                <div key={metrik.label} style={{ minWidth: 0 }}>
+                                  <div style={{ color: '#64748b', fontSize: '10px', fontWeight: '700', marginBottom: '4px' }}>{metrik.label}</div>
+                                  <div style={{ color: metrik.color, fontSize: '14px', lineHeight: 1.3, fontWeight: '800', overflowWrap: 'anywhere' }}>{dashboardFormat(metrik.value)}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {(ozet.gecikenAlacak > 0 || ozet.gecikenBorc > 0) && (
+                              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '13px', paddingTop: '11px', borderTop: '1px solid #e2e8f0' }}>
+                                {ozet.gecikenAlacak > 0 && <span style={{ padding: '5px 8px', borderRadius: '7px', background: '#fff7ed', color: '#9a3412', fontSize: '11px', fontWeight: '750' }}>Geciken tahsilat: {dashboardFormat(ozet.gecikenAlacak)}</span>}
+                                {ozet.gecikenBorc > 0 && <span style={{ padding: '5px 8px', borderRadius: '7px', background: '#fef2f2', color: '#991b1b', fontSize: '11px', fontWeight: '750' }}>Geciken borç: {dashboardFormat(ozet.gecikenBorc)}</span>}
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                        {projeOzetleri.length === 0 && <div style={{ padding: '22px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '10px' }}>Görüntülenecek proje bulunamadı.</div>}
+                      </div>
+                    </>
+                  )}
+                </section>
+
+                {/* SEÇİLİ PROJE DETAY ÖZETİ */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 2px' }}>
+                  <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>Seçili Proje Detayları</h3>
+                  <span style={{ color: '#64748b', fontSize: '12px' }}>{seciliProje?.ad || ''}</span>
+                </div>
 
                 {/* ÜST ÖZET KARTLARI */}
                 <div
