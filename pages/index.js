@@ -30,6 +30,7 @@ export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
   const [projeler, setProjeler] = useState([]);
   const [seciliProje, setSeciliProje] = useState(null);
+  const [anaSayfaAktif, setAnaSayfaAktif] = useState(true);
   // Şirket ana sayfasında tüm yetkili projelerin finansal özetleri
   const [projeOzetleri, setProjeOzetleri] = useState([]);
   const [projeOzetleriYukleniyor, setProjeOzetleriYukleniyor] = useState(false);
@@ -2757,7 +2758,9 @@ export default function Dashboard() {
             alt="Esmahan Yapı - Ana Sayfa"
             title="Ana Sayfaya Dön"
             onClick={() => {
+              setAnaSayfaAktif(true);
               setAktifSekme('ozet');
+              setMobilMenuAcik(false);
               setHata('');
               setMesaj('');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2799,6 +2802,29 @@ export default function Dashboard() {
           </div>
         </div>
 
+        <button
+          type="button"
+          onClick={() => {
+            setAnaSayfaAktif(true);
+            setAktifSekme('ozet');
+            setMesaj('');
+            setHata('');
+            setMobilMenuAcik(false);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          aria-current={anaSayfaAktif ? 'page' : undefined}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '11px 12px', marginBottom: '20px', borderRadius: '10px',
+            border: anaSayfaAktif ? '1px solid #4778f5' : '1px solid #334155',
+            background: anaSayfaAktif ? 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' : '#172236',
+            color: '#fff', cursor: 'pointer', fontWeight: 700, textAlign: 'left'
+          }}
+        >
+          <span aria-hidden="true">🏠</span>
+          <span>Ana Sayfa</span>
+        </button>
+
         <p
           style={{
             color: '#64748b',
@@ -2828,6 +2854,7 @@ export default function Dashboard() {
             <li
               key={p.id}
               onClick={() => {
+                setAnaSayfaAktif(false);
                 setSeciliProje(p);
                 setMesaj('');
                 setHata('');
@@ -3078,25 +3105,83 @@ export default function Dashboard() {
         <button type="button" className="mobil-menu-butonu" aria-label="Menüyü aç" onClick={() => setMobilMenuAcik(true)}>
           ☰
         </button>
-        {!seciliProje ? (
-          <div
-            style={{
-              textAlign: 'center',
-              marginTop: '150px',
-              color: '#64748b'
-            }}
-          >
+        {anaSayfaAktif ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', paddingTop: '2px' }}>
+            <div style={{ marginBottom: '2px' }}>
+              <h1 style={{ fontSize: '28px', fontWeight: 850, color: '#0f172a', margin: '0 0 5px' }}>Ana Sayfa</h1>
+              <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Şirket genel finansal durumu ve proje bazında raporlar</p>
+            </div>
+            <section style={{ background: '#fff', padding: '22px', borderRadius: '18px', border: '1px solid #e2e8f0', boxShadow: '0 5px 18px rgba(15,23,42,0.045)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', marginBottom: '18px' }}>
+                <div>
+                  <h2 style={{ margin: 0, color: '#0f172a', fontSize: '21px', fontWeight: 850 }}>Şirket Genel Görünümü</h2>
+                  <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: '13px' }}>Tüm erişiminiz olan projelerin gerçekleşen gelir-gideri ve bu ayın tahsilat/ödeme planı</p>
+                </div>
+                <span style={{ padding: '7px 11px', borderRadius: '9px', background: '#f1f5f9', color: '#475569', fontSize: '12px', fontWeight: 750 }}>{projeOzetleri.length} proje</span>
+              </div>
+              {projeOzetleriHata ? (
+                <div role="alert" style={{ padding: '13px 15px', borderRadius: '10px', background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412' }}>{projeOzetleriHata}</div>
+              ) : projeOzetleriYukleniyor ? (
+                <div style={{ padding: '28px 12px', textAlign: 'center', color: '#64748b' }}>Finansal raporlar yükleniyor...</div>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '22px' }}>
+                    {[
+                      { label: 'Toplam Gerçekleşen Gelir', value: projeOzetleri.reduce((t, p) => t + p.toplamGelir, 0), color: '#047857', bg: '#ecfdf5', border: '#a7f3d0' },
+                      { label: 'Toplam Gerçekleşen Gider', value: projeOzetleri.reduce((t, p) => t + p.toplamGider, 0), color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+                      { label: 'Gelir − Gider Farkı', value: projeOzetleri.reduce((t, p) => t + p.netBakiye, 0), color: projeOzetleri.reduce((t, p) => t + p.netBakiye, 0) >= 0 ? '#1d4ed8' : '#b91c1c', bg: '#eff6ff', border: '#bfdbfe' },
+                      { label: 'Bu Ay Gerçekleşen Gelir', value: projeOzetleri.reduce((t, p) => t + p.buAyGelir, 0), color: '#047857', bg: '#f0fdf4', border: '#bbf7d0' },
+                      { label: 'Bu Ay Gerçekleşen Gider', value: projeOzetleri.reduce((t, p) => t + p.buAyGider, 0), color: '#b91c1c', bg: '#fff1f2', border: '#fecdd3' },
+                      { label: 'Bu Ay Alınacak', value: projeOzetleri.reduce((t, p) => t + p.buAyAlinacak, 0), color: '#047857', bg: '#ecfdf5', border: '#a7f3d0' },
+                      { label: 'Bu Ay Ödenecek', value: projeOzetleri.reduce((t, p) => t + p.buAyOdenecek, 0), color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' }
+                    ].map((kart) => (
+                      <div key={kart.label} style={{ minWidth: 0, padding: '14px', borderRadius: '12px', background: kart.bg, border: `1px solid ${kart.border}` }}>
+                        <div style={{ color: '#64748b', fontSize: '10px', lineHeight: 1.4, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.35px' }}>{kart.label}</div>
+                        <div style={{ marginTop: '7px', color: kart.color, fontSize: 'clamp(17px, 2vw, 22px)', lineHeight: 1.25, fontWeight: 850, overflowWrap: 'anywhere' }}>{dashboardFormat(kart.value)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px' }}>Proje Bazında Finansal Raporlar</h3>
+                    <span style={{ color: '#64748b', fontSize: '12px' }}>Detay için proje kartına tıklayın</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
+                    {projeOzetleri.map((ozet) => (
+                      <button key={ozet.proje.id} type="button" onClick={() => { setSeciliProje(ozet.proje); setAnaSayfaAktif(false); setAktifSekme('ozet'); setMobilMenuAcik(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }} style={{ width: '100%', textAlign: 'left', padding: '16px', borderRadius: '13px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', color: 'inherit' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '13px' }}>
+                          <div style={{ color: '#0f172a', fontSize: '15px', fontWeight: 850, overflowWrap: 'anywhere' }}>{ozet.proje.ad || `Proje #${ozet.proje.id}`}</div>
+                          <span aria-hidden="true" style={{ color: '#64748b', fontSize: '20px' }}>›</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: '12px' }}>
+                          {[
+                            { label: 'Toplam Gelir', value: ozet.toplamGelir, color: '#047857' },
+                            { label: 'Toplam Gider', value: ozet.toplamGider, color: '#b91c1c' },
+                            { label: 'Gelir − Gider', value: ozet.netBakiye, color: ozet.netBakiye >= 0 ? '#1d4ed8' : '#b91c1c' },
+                            { label: 'Bu Ay Gelir', value: ozet.buAyGelir, color: '#047857' },
+                            { label: 'Bu Ay Gider', value: ozet.buAyGider, color: '#b91c1c' },
+                            { label: 'Bu Ay Alınacak', value: ozet.buAyAlinacak, color: '#047857' },
+                            { label: 'Bu Ay Ödenecek', value: ozet.buAyOdenecek, color: '#b91c1c' }
+                          ].map((metrik) => (
+                            <div key={metrik.label} style={{ minWidth: 0 }}>
+                              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, marginBottom: '4px' }}>{metrik.label}</div>
+                              <div style={{ color: metrik.color, fontSize: '14px', lineHeight: 1.3, fontWeight: 800, overflowWrap: 'anywhere' }}>{dashboardFormat(metrik.value)}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {(ozet.gecikenAlacak > 0 || ozet.gecikenBorc > 0) && <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '13px', paddingTop: '11px', borderTop: '1px solid #e2e8f0' }}>{ozet.gecikenAlacak > 0 && <span style={{ padding: '5px 8px', borderRadius: '7px', background: '#fff7ed', color: '#9a3412', fontSize: '11px', fontWeight: 750 }}>Geciken tahsilat: {dashboardFormat(ozet.gecikenAlacak)}</span>}{ozet.gecikenBorc > 0 && <span style={{ padding: '5px 8px', borderRadius: '7px', background: '#fef2f2', color: '#991b1b', fontSize: '11px', fontWeight: 750 }}>Geciken borç: {dashboardFormat(ozet.gecikenBorc)}</span>}</div>}
+                      </button>
+                    ))}
+                    {projeOzetleri.length === 0 && <div style={{ padding: '22px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '10px' }}>Görüntülenecek proje bulunamadı.</div>}
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
+        ) : !seciliProje ? (
+          <div style={{ textAlign: 'center', marginTop: '150px', color: '#64748b' }}>
             <span style={{ fontSize: '48px' }}>👈</span>
-
-            <h2>
-              Lütfen sol menüden yönetmek istediğiniz projeyi
-              seçin.
-            </h2>
-
-            <p>
-              Yeni proje eklemek için sol taraftaki alana proje
-              adını yazabilirsiniz.
-            </p>
+            <h2>Lütfen sol menüden yönetmek istediğiniz projeyi seçin.</h2>
+            <p>Yeni proje eklemek için sol taraftaki alana proje adını yazabilirsiniz.</p>
           </div>
         ) : (
           <>
